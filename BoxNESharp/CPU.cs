@@ -154,7 +154,7 @@ namespace BoxNESharp {
             }
             #endregion
 
-            #region オペコード
+            #region オペランド
 
             public struct Operand {
                 public Instruction Instruction;
@@ -338,11 +338,11 @@ namespace BoxNESharp {
                 { 0x28, new Operand(Instruction.PLP, AddressingMode.Implied,4) },
 
                 // ROL
-                { 0x2A, new Operand(Instruction.ROL, AddressingMode.Accumulator) },
-                { 0x26, new Operand(Instruction.ROL, AddressingMode.ZeroPage) },
-                { 0x36, new Operand(Instruction.ROL, AddressingMode.ZeroPageX) },
-                { 0x2E, new Operand(Instruction.ROL, AddressingMode.Absolute) },
-                { 0x3E, new Operand(Instruction.ROL, AddressingMode.AbsoluteX) },
+                { 0x2A, new Operand(Instruction.ROL, AddressingMode.Accumulator,2) },
+                { 0x26, new Operand(Instruction.ROL, AddressingMode.ZeroPage,5) },
+                { 0x36, new Operand(Instruction.ROL, AddressingMode.ZeroPageX,6) },
+                { 0x2E, new Operand(Instruction.ROL, AddressingMode.Absolute,6) },
+                { 0x3E, new Operand(Instruction.ROL, AddressingMode.AbsoluteX,7) },
 
                 // ROR
                 { 0x6A, new Operand(Instruction.ROR, AddressingMode.Accumulator,2) },
