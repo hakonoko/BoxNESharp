@@ -4,6 +4,8 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using DxLibDLL;
+using System.Windows.Forms;
+using Microsoft.WindowsAPICodePack.Dialogs;
 
 namespace BoxNESharp {
     internal partial class BoxNESharp {
@@ -46,22 +48,46 @@ namespace BoxNESharp {
 
             DX.SetDrawScreen(DX.DX_SCREEN_BACK); //裏画面処理を設定する
 
-            // CPUを初期化
-            cpu = CPU.GetInstance();
+            // ファイル選択
+            var path = PickAndShow();
+
+            DebugLog(path);
+
+            int cnt = 0;
 
             // 無限ループ
             while (DX.CheckHitKey(DX.KEY_INPUT_ESCAPE) == 0) {
                 DX.ProcessMessage();
                 DX.ClearDrawScreen(); //裏画面をクリアする
 
-                cpu.Clock();
+                //cpu.Fetch();
 
                 DX.ScreenFlip(); //2つの画面を入れ替える
+
+                if (cnt > 100) {
+                    break;
+                }
             }
 
             // DXライブラリ終了
 
             DX.DxLib_End();
+        }
+
+        static string PickAndShow() {
+            string path = string.Empty;
+            using (CommonOpenFileDialog cofd = new CommonOpenFileDialog()) {
+                cofd.IsFolderPicker = false;
+
+                if (cofd.ShowDialog() == CommonFileDialogResult.Ok) {
+                    path = cofd.FileName;
+                }
+            }
+            return path;
+        }
+
+        public static void DebugLog(string text) {
+            System.Diagnostics.Debug.WriteLine(text);
         }
     }
 }

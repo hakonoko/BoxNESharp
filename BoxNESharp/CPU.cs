@@ -24,13 +24,13 @@ namespace BoxNESharp {
             private class Memory {
                 public byte[] RAM = new byte[0xFFFF];
 
-                public byte[] WRAM = new byte[0x0800];
-                public byte[] PPU = new byte[0x0008];
-                public byte[] APU = new byte[0x0020];
-                public byte[] EXTROM = new byte[0x1FE0];
-                public byte[] EXTRAM = new byte[0x2000];
-                public byte[] PRGROM = new byte[0x4000];
-                public byte[] PRGRAM = new byte[0x4000];
+                //public byte[] WRAM = new byte[0x0800];
+                //public byte[] PPU = new byte[0x0008];
+                //public byte[] APU = new byte[0x0020];
+                //public byte[] EXTROM = new byte[0x1FE0];
+                //public byte[] EXTRAM = new byte[0x2000];
+                //public byte[] PRGROM = new byte[0x4000];
+                //public byte[] PRGRAM = new byte[0x4000];
             }
 
             /// <summary>
@@ -168,7 +168,7 @@ namespace BoxNESharp {
                 }
             }
 
-            Dictionary<byte, Operand> opeCodeDic = new() {
+            Dictionary<byte, Operand> operandDic = new() {
                 // ADC
                 { 0x69, new Operand(Instruction.ADC, AddressingMode.Immediate, 2) },
                 { 0x65, new Operand(Instruction.ADC, AddressingMode.ZeroPage,3) },
@@ -417,11 +417,91 @@ namespace BoxNESharp {
             /// <summary>
             /// メイン処理　1クロックごと
             /// </summary>
-            public void Clock() {
-
+            public void Fetch() {
                 var opeCode = Read(Reg.PC);
-                Reg.PC--;
+                Reg.PC++;
 
+                var operand = operandDic[opeCode];
+
+                byte data = 0;
+                ushort address = 0;
+                switch (operand.AddressingMode) {
+                    case AddressingMode.Accumulator:
+                    case AddressingMode.Implied:
+                        break;
+
+                    case AddressingMode.Immediate:
+                        data = Read(Reg.PC);
+                        Reg.PC++;
+                        break;
+
+                    case AddressingMode.Relative:
+                        address = (ushort)(Reg.PC + Read(Reg.PC));
+                        data = Read(address);
+                        Reg.PC++;
+                        break;
+
+                    case AddressingMode.Absolute:
+                        address = ReadWord(Reg.PC);
+                        data = Read(address);
+                        Reg.PC += 2;
+                        break;
+
+                    case AddressingMode.AbsoluteX:
+                        address = ReadWord(Reg.PC);
+                        data = Read((ushort)(address + Reg.X));
+                        Reg.PC += 2;
+                        break;
+
+                    case AddressingMode.AbsoluteY:
+                        address = ReadWord(Reg.PC);
+                        data = Read((ushort)(address + Reg.Y));
+                        Reg.PC += 2;
+                        break;
+
+                    case AddressingMode.ZeroPage:
+                        address = Read(Reg.PC);
+                        data = Read(address);
+                        Reg.PC++;
+                        break;
+
+                    case AddressingMode.ZeroPageX:
+                        address = Read(Reg.PC);
+                        data = Read((ushort)(address + Reg.X));
+                        Reg.PC++;
+                        break;
+
+                    case AddressingMode.ZeroPageY:
+                        address = Read(Reg.PC);
+                        data = Read((ushort)(address + Reg.Y));
+                        Reg.PC++;
+                        break;
+
+                    case AddressingMode.Indirect:
+                        address = ReadWord(Reg.PC);
+                        Reg.PC++;
+                        break;
+
+                    case AddressingMode.IndirectX:
+                        address = Read(Reg.PC);
+                        data = Read((ushort)(address + Reg.X));
+                        Reg.PC++;
+                        break;
+
+                    case AddressingMode.IndirectY:
+                        address = Read(Reg.PC);
+                        data = (byte)(Read(address) + Reg.Y);
+                        Reg.PC++;
+                        break;
+                }
+
+                switch (operand.Instruction) {
+                    case Instruction.ADC:
+                        ADC(data);
+                        break;
+                }
+
+                /*
                 for (int i = 0; i < 236; i++) {
                     DX.DrawFillBox(i * DotSizeW, i * DotSizeH, (i * DotSizeW) + DotSizeW, (i * DotSizeH) + DotSizeH, DX.GetColor(0, 255, 0));
                 }
@@ -449,8 +529,10 @@ namespace BoxNESharp {
                 if (DX.CheckHitKey(DX.KEY_INPUT_7) > 0) {
                     Reg.Carry = !Reg.Carry;
                 }
+                */
             }
 
+            #region Read/Write
             /// <summary>
             /// 1バイト読込
             /// </summary>
@@ -467,14 +549,413 @@ namespace BoxNESharp {
                 return (ushort)(Read(address) | (Read((ushort)(address + 1)) << 8));
             }
 
+            void Write(ushort address, byte data) {
+                Mem.RAM[address] = data;
+            }
+            #endregion
+
+            #region Pop/Push
+            void Push(byte data) {
+                Write((ushort)(0x0100 | Reg.SP), data);
+                Reg.SP++;
+            }
+
+            byte Pop() {
+                var result = Read((ushort)(0x0100 | Reg.SP));
+                Reg.SP--;
+                return result;
+            }
+            #endregion
+
+            #region Instruction
+
+            #region Calculation
+            void ADC(byte data) {
+                var result = (byte)(Reg.A + data + (byte)(Reg.Carry ? 1 : 0));
+                Reg.Carry = result > 0xFF;
+                Reg.Zero = result == 0;
+                Reg.Overflow = ((result ^ Reg.A) & (result ^ data) & 0x80) > 0;
+                Reg.Negative = (result & 0x80) > 0;
+                Reg.A = result;
+            }
+
+            void SBC(byte data) {
+                var result = (byte)(Reg.A - data - (byte)(!Reg.Carry ? 1 : 0));
+                Reg.Carry = !(result < 0);
+                Reg.Zero = result == 0;
+                Reg.Overflow = (byte)((result ^ ~Reg.A) & (result ^ ~data) & 0x80) > 0;
+                Reg.Negative = (result & 0x80) > 0;
+                Reg.A = result;
+            }
+            #endregion
+
+            #region Logic
+            void AND(byte data) {
+                var result = (byte)(Reg.A & data);
+                Reg.Zero = result == 0;
+                Reg.Negative = (result & 0x80) > 0;
+                Reg.A = result;
+            }
+
+            void ORA(byte data) {
+                var result = (byte)(Reg.A | data);
+                Reg.Zero = result == 0;
+                Reg.Negative = (result & 0x80) > 0;
+                Reg.A = result;
+            }
+
+            void EOR(byte data) {
+                var result = (byte)(Reg.A ^ data);
+                Reg.Zero = result == 0;
+                Reg.Negative = (result & 0x80) > 0;
+                Reg.A = result;
+            }
+            #endregion
+
+            #region Shift and Lotation
+            void ASL(AddressingMode mode, byte data = 0) {
+                if(mode == AddressingMode.Accumulator) {
+                    var result = (byte)(Reg.A << 1);
+                    Reg.Carry = (Reg.A & 0x80) > 0;
+                    Reg.Zero = result == 0;
+                    Reg.Negative = (result & 0x80) > 0;
+                    Reg.A = result;
+                } else {
+                    // TODO
+                }
+
+            }
+
+            void LSR() {
+                var result = (byte)(Reg.A << 1);
+                Reg.Carry = (Reg.A & 0x80) > 0;
+                Reg.A = result;
+            }
+
+            void ROL() {
+                var result = (byte)((Reg.A << 1) | (Reg.Carry ? 1 : 0));
+                Reg.Carry = (Reg.A & 0x80) > 0;
+                Reg.Zero = result == 0;
+                Reg.Negative = (result & 0x80) > 0;
+                Reg.A = result;
+            }
+
+            void ROR() {
+                var result = (byte)((Reg.A >> 1) | ((Reg.Carry ? 1 : 0 << 7)) );
+                Reg.Carry = (Reg.A & 0x01) > 0;
+                Reg.Zero = result == 0;
+                Reg.Negative = (result & 0x80) > 0;
+                Reg.A = result;
+            }
+            #endregion
+
+            #region Branch
+            void BCC(byte data) {
+                if (!Reg.Carry) {
+                    Reg.PC = (ushort)(Reg.PC + 1 + data);
+                } else {
+                    Reg.PC++;
+                }
+            }
+
+            void BCS(byte data) {
+                if (Reg.Carry) {
+                    Reg.PC = (ushort)(Reg.PC + 1 + data);
+                } else {
+                    Reg.PC++;
+                }
+            }
+
+            void BNE(byte data) {
+                if (!Reg.Zero) {
+                    Reg.PC = (ushort)(Reg.PC + 1 + data);
+                } else {
+                    Reg.PC++;
+                }
+            }
+
+            void BEQ(byte data) {
+                if (Reg.Zero) {
+                    Reg.PC = (ushort)(Reg.PC + 1 + data);
+                } else {
+                    Reg.PC++;
+                }
+            }
+
+            void BVC(byte data) {
+                if (!Reg.Overflow) {
+                    Reg.PC = (ushort)(Reg.PC + 1 + data);
+                } else {
+                    Reg.PC++;
+                }
+            }
+
+            void BVS(byte data) {
+                if (Reg.Overflow) {
+                    Reg.PC = (ushort)(Reg.PC + 1 + data);
+                } else {
+                    Reg.PC++;
+                }
+            }
+
+            void BPL(byte data) {
+                if (!Reg.Negative) {
+                    Reg.PC = (ushort)(Reg.PC + 1 + data);
+                } else {
+                    Reg.PC++;
+                }
+            }
+
+            void BMI(byte data) {
+                if (Reg.Negative) {
+                    Reg.PC = (ushort)(Reg.PC + 1 + data);
+                } else {
+                    Reg.PC++;
+                }
+            }
+            #endregion
+
+            #region Bit Test
+            void BIT(byte data) {
+                var result = (byte)(Reg.A & data);
+                Reg.Overflow = (Reg.A & 0x40) > 0;
+                Reg.Zero = result == 0;
+                Reg.Negative = (result & 0x80) > 0;
+            }
+            #endregion
+
+            #region Jump
+            void JMP(byte data) {
+                Reg.PC = data;
+            }
+
+            void JSR(ushort data) {
+                Push((byte)((Reg.PC & 0xFF00) >> 8));
+                Push((byte)(Reg.PC & 0x00FF));
+                Reg.PC = data;
+            }
+
+            void RTS() {
+                var low = Pop();
+                var high = Pop();
+                Reg.PC = (ushort)(high << 8 | low) ;
+            }
+            #endregion
+
+            #region Interrupt
+            void BRK() {
+                if (Reg.Interrupt)
+                    return;
+                Reg.Break = true;
+                Reg.PC++;
+                Push((byte)((Reg.PC & 0xFF00) >> 8));
+                Push((byte)(Reg.PC & 0x00FF));
+                Push(Reg.P);
+                Reg.Interrupt = true;
+                Reg.PC = ReadWord(0xFFFE);
+            }
+            
+            void RTI() {
+                Reg.P = Pop();
+                var low = Pop();
+                var high = Pop();
+                Reg.PC = (ushort)((high << 8) | low);
+            }
+
+            //void IRQ() {
+            //    if (Reg.Interrupt)
+            //        return;
+            //    Reg.Break = false;
+            //    //Reg.PC++;
+            //    Push((byte)((Reg.PC & 0xFF00) >> 8));
+            //    Push((byte)(Reg.PC & 0x00FF));
+            //    Push(Reg.P);
+            //    Reg.Interrupt = true;
+            //    Reg.PC = ReadWord(0xFFFE);
+            //}
+            #endregion
+
+            #region Increment/Decrement
+            void INC(ushort addr, byte data) {
+                var result = (byte)(data + 1);
+                Reg.Negative = (result & 0x80) > 0;
+                Reg.Zero = result == 0;
+                Write(addr, result);
+            }
+            
+            void DEC(ushort addr, byte data) {
+                var result = (byte)(data - 1);
+                Reg.Negative = (result & 0x80) > 0;
+                Reg.Zero = result == 0;
+                Write(addr, result);
+            }
+
+            void INX() {
+                var result = (byte)(Reg.X + 1);
+                Reg.Negative = (result & 0x80) > 0;
+                Reg.Zero = result == 0;
+                Reg.X = result;
+            }
+
+            void DEX() {
+                var result = (byte)(Reg.X - 1);
+                Reg.Negative = (result & 0x80) > 0;
+                Reg.Zero = result == 0;
+                Reg.X = result;
+            }
+
+            void INY() {
+                var result = (byte)(Reg.Y + 1);
+                Reg.Negative = (result & 0x80) > 0;
+                Reg.Zero = result == 0;
+                Reg.Y = result;
+            }
+
+            void DEY() {
+                var result = (byte)(Reg.Y - 1);
+                Reg.Negative = (result & 0x80) > 0;
+                Reg.Zero = result == 0;
+                Reg.Y = result;
+            }
+            #endregion
+
+            #region Flag Operation
+            void CLC() {
+                Reg.Carry = false;
+            }
+
+            void SEC() {
+                Reg.Carry = true;
+            }
+
+            void CLI() {
+                Reg.Interrupt = false;
+            }
+
+            void SEI() {
+                Reg.Interrupt = true;
+            }
+
+            void CLD() {
+                Reg.Decimal = false;
+            }
+
+            void SED() {
+                Reg.Decimal = true;
+            }
+
+            void CLV() {
+                Reg.Negative = false;
+            }
+            #endregion
+
+            #region Load/Store
+            void LDA(byte data) {
+                Reg.Negative = (data & 0x80) > 0;
+                Reg.Zero = data == 0;
+                Reg.A = data;
+            }
+
+            void LDX(byte data) {
+                Reg.Negative = (data & 0x80) > 0;
+                Reg.Zero = data == 0;
+                Reg.X = data;
+            }
+
+            void LDY(byte data) {
+                Reg.Negative = (data & 0x80) > 0;
+                Reg.Zero = data == 0;
+                Reg.Y = data;
+            }
+
+            void STA(ushort addr) {
+                Write(addr, Reg.A);
+            }
+
+            void STX(ushort addr) {
+                Write(addr, Reg.X);
+            }
+
+            void STY(ushort addr) {
+                Write(addr, Reg.Y);
+            }
+            #endregion
+
+            #region Register Transfar
+            void TAX() {
+                var result = Reg.A;
+                Reg.Negative = (result & 0x80) > 0;
+                Reg.Zero = result == 0;
+                Reg.X = result;
+            }
+
+            void TXA() {
+                var result = Reg.X;
+                Reg.Negative = (result & 0x80) > 0;
+                Reg.Zero = result == 0;
+                Reg.A = result;
+            }
+
+            void TAY() {
+                var result = Reg.A;
+                Reg.Negative = (result & 0x80) > 0;
+                Reg.Zero = result == 0;
+                Reg.Y = result;
+            }
+
+            void TYA() {
+                var result = Reg.Y;
+                Reg.Negative = (result & 0x80) > 0;
+                Reg.Zero = result == 0;
+                Reg.A = result;
+            }
+
+            void TSX() {
+                var result = Reg.SP;
+                Reg.Negative = (result & 0x80) > 0;
+                Reg.Zero = result == 0;
+                Reg.X = result;
+            }
+
+            void TXS() {
+                var result = Reg.X;
+                Reg.SP = result;
+            }
+            #endregion
+
+            #region Stack
+            void PHA() {
+                Push(Reg.A);
+            }
+
+            void PLA() {
+                var result = Pop();
+                Reg.A = result;
+            }
+
+            void PHP() {
+                Push(Reg.P);
+            }
+
+            void PLP() {
+                var result = Pop();
+                Reg.P = result;
+            }
+            #endregion
+
+            #region NOP
+            void NOP() {
+                // NOP
+            }
+            #endregion
             void Reset() {
                 Reg.Interrupt = true;
 
                 // PCを初期化
-                Reg.PC = 0xFFFD;
-
-                Reg.PC = ReadWord(Reg.PC);
+                Reg.PC = ReadWord(0xFFFC);
             }
+            #endregion
+
 
 
         }
