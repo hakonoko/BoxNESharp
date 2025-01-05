@@ -8,6 +8,8 @@ using System.Threading.Tasks;
 namespace BoxNESharp {
     internal partial class BoxNESharp {
         class CPU {
+            PPU ppu = PPU.GetInstance();
+
             #region Singlton
             private static CPU _instance = new CPU();
 
@@ -22,6 +24,22 @@ namespace BoxNESharp {
             /// </summary>
             private class Memory {
                 public byte[] RAM = new byte[0xFFFF];
+
+                public void Write(ushort address, byte data) {
+                    if (address == 0x2006) {
+                        // PPUのアドレスレジスタ
+                        // 2回書き込むとアドレスが変わる
+                        // 1回目は上位アドレス
+                        // 2回目は下位アドレス
+                        // TODO
+                    }else if(address == 0x2007) {
+                        // PPUのデータレジスタ
+                        // 書き込むとVRAMに書き込む
+                        // TODO
+                    } else {
+                        RAM[address] = data;
+                    }
+                }
 
                 //public byte[] WRAM = new byte[0x0800];
                 //public byte[] PPU = new byte[0x0008];
@@ -406,8 +424,6 @@ namespace BoxNESharp {
             };
             #endregion
 
-            PPU ppu = PPU.GetInstance();
-
             public void SetRom(byte[] rom) {
                 int headerSize = 0x0010;
                 var prgSize = rom[4] * 0x4000;  // 16KB units
@@ -423,16 +439,16 @@ namespace BoxNESharp {
                 DebugLog($"CHR Index Start: 0x{chrStartIndex.ToString("X4")} End: 0x{chrEndIndex.ToString("X4")}");
 
                 for (int i = headerSize; i < chrStartIndex - 1; i++) {
-                    Mem.RAM[0x8000 + i] = rom[i - headerSize];
+                    Mem.RAM[0x8000 + i - headerSize] = rom[i];
                 }
 
-                // デバッグ用RAM出力s
-                DebugExportRAM();
+                // デバッグ用RAM出力
+                //DebugExportRAM();
 
                 ppu.SetCHRROM(rom[chrStartIndex..chrEndIndex]);
 
                 // デバッグ用VRAM出力
-                ppu.DebugExportVRAM();
+                //ppu.DebugExportVRAM();
 
                 // リセット処理
                 Reset();
@@ -458,7 +474,7 @@ namespace BoxNESharp {
             /// <summary>
             /// メイン処理　1クロックごと
             /// </summary>
-            public void Fetch() {
+            public int Fetch() {
                 // 命令コードの取得
                 var opeCode = Read(Reg.PC);
                 Reg.PC++;
@@ -710,6 +726,8 @@ namespace BoxNESharp {
                         NOP();
                         break;
                 }
+
+                return operand.Cycle;
 
                 /*
                 for (int i = 0; i < 236; i++) {

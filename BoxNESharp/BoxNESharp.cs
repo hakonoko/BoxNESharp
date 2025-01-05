@@ -29,6 +29,8 @@ namespace BoxNESharp {
 
         // CPU
         static CPU cpu = CPU.GetInstance();
+        // PPU
+        static PPU ppu = PPU.GetInstance();
 
         /// <summary>
         /// メイン関数
@@ -51,6 +53,12 @@ namespace BoxNESharp {
 
             // ファイル選択
             var path = FilePicker();
+
+            if (string.IsNullOrEmpty(path)) {
+                DebugLog("ファイルが選択されていません。");
+                DX.DxLib_End();
+                return;
+            }
 
             DebugLog("");
             DebugLog($"FilePath: {path}");
@@ -82,12 +90,14 @@ namespace BoxNESharp {
                 DX.ProcessMessage();
                 DX.ClearDrawScreen(); //裏画面をクリアする
 
-                //cpu.Fetch();
+                var cycle = cpu.Fetch();
 
                 DX.ScreenFlip(); //2つの画面を入れ替える
 
                 cnt++;
                 if (cnt > 100) {
+                    cpu.DebugExportRAM();
+                    ppu.DebugExportVRAM();
                     break;
                 }
             }

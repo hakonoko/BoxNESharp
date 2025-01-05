@@ -27,6 +27,12 @@ namespace BoxNESharp {
             private PPU() {
             }
 
+            /// <summary> CPUのサイクル数 </summary>
+            int cycle = 0;
+
+            /// <summary> 現在のスキャンライン </summary>
+            int line = 0;
+
             #region Memory
             private class Memory {
                 public byte[] VRAM = new byte[0x3FFF];
@@ -42,6 +48,27 @@ namespace BoxNESharp {
                     // 0x0000～0x0FFFは背景パターンテーブル1
                     // 0x1000～0x1FFFは背景パターンテーブル2
                     Mem.VRAM[i] = chrRom[i];
+                }
+            }
+
+            public void WriteVRAM(ushort address, byte data) {
+                Mem.VRAM[address] = data;
+            }
+
+            public byte ReadVRAM(ushort address) {
+                return Mem.VRAM[address];
+            }
+
+            public void Run(int cycle) {
+                this.cycle += cycle;
+
+                // 341サイクルごとに1ライン描画
+                if (this.cycle >= 341) {
+                    this.cycle -= 341;
+
+                    // 1ライン描画
+                    line++;
+                    // TODO: 描画処理
                 }
             }
 
