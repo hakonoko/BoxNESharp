@@ -563,10 +563,151 @@ namespace BoxNESharp {
                         LSR(operand.AddressingMode, address, data);
                         break;
                     case Instruction.ROL:
-                        ROL();
+                        ROL(operand.AddressingMode, address, data);
                         break;
                     case Instruction.ROR:
-                        ROR();
+                        ROR(operand.AddressingMode, address, data);
+                        break;
+                    case Instruction.BCC:
+                        BCC(data);
+                        break;
+                    case Instruction.BCS:
+                        BCS(data);
+                        break;
+                    case Instruction.BEQ:
+                        BEQ(data);
+                        break;
+                    case Instruction.BNE:
+                        BNE(data);
+                        break;
+                    case Instruction.BVC:
+                        BVC(data);
+                        break;
+                    case Instruction.BVS:
+                        BVS(data);
+                        break;
+                    case Instruction.BPL:
+                        BPL(data);
+                        break;
+                    case Instruction.BMI:
+                        BMI(data);
+                        break;
+                    case Instruction.BIT:
+                        BIT(data);
+                        break;
+                    case Instruction.JMP:
+                        JMP(data);
+                        break;
+                    case Instruction.JSR:
+                        JSR(address);
+                        break;
+                    case Instruction.RTS:
+                        RTS();
+                        break;
+                    case Instruction.BRK:
+                        BRK();
+                        break;
+                    case Instruction.RTI:
+                        RTI();
+                        break;
+                    case Instruction.CMP:
+                        CMP(data);
+                        break;
+                    case Instruction.CPX:
+                        CPX(data);
+                        break;
+                    case Instruction.CPY:
+                        CPY(data);
+                        break;
+                    case Instruction.INC:
+                        INC(address, data);
+                        break;
+                    case Instruction.DEC:
+                        DEC(address, data);
+                        break;
+                    case Instruction.INX:
+                        INX();
+                        break;
+                    case Instruction.INY:
+                        INY();
+                        break;
+                    case Instruction.DEX:
+                        DEX();
+                        break;
+                    case Instruction.DEY:
+                        DEY();
+                        break;
+                    case Instruction.CLC:
+                        CLC();
+                        break;
+                    case Instruction.SEC:
+                        SEC();
+                        break;
+                    case Instruction.CLI:
+                        CLI();
+                        break;
+                    case Instruction.SEI:
+                        SEI();
+                        break;
+                    case Instruction.CLD:
+                        CLD();
+                        break;
+                    case Instruction.SED:
+                        SED();
+                        break;
+                    case Instruction.CLV:
+                        CLV();
+                        break;
+                    case Instruction.LDA:
+                        LDA(data);
+                        break;
+                    case Instruction.LDX:
+                        LDX(data);
+                        break;
+                    case Instruction.LDY:
+                        LDY(data);
+                        break;
+                    case Instruction.STA:
+                        STA(address);
+                        break;
+                    case Instruction.STX:
+                        STX(address);
+                        break;
+                    case Instruction.STY:
+                        STY(address);
+                        break;
+                    case Instruction.TAX:
+                        TAX();
+                        break;
+                    case Instruction.TXA:
+                        TXA();
+                        break;
+                    case Instruction.TAY:
+                        TAY();
+                        break;
+                    case Instruction.TYA:
+                        TYA();
+                        break;
+                    case Instruction.TSX:
+                        TSX();
+                        break;
+                    case Instruction.TXS:
+                        TXS();
+                        break;
+                    case Instruction.PHA:
+                        PHA();
+                        break;
+                    case Instruction.PLA:
+                        PLA();
+                        break;
+                    case Instruction.PHP:
+                        PHP();
+                        break;
+                    case Instruction.PLP:
+                        PLP();
+                        break;
+                    case Instruction.NOP:
+                        NOP();
                         break;
                 }
 
@@ -715,20 +856,36 @@ namespace BoxNESharp {
                 }
             }
 
-            void ROL() {
-                var result = (byte)((Reg.A << 1) | (Reg.Carry ? 1 : 0));
-                Reg.Carry = (Reg.A & 0x80) > 0;
-                Reg.Zero = result == 0;
-                Reg.Negative = (result & 0x80) > 0;
-                Reg.A = result;
+            void ROL(AddressingMode mode, ushort address, byte data) {
+                if (mode == AddressingMode.Accumulator) {
+                    var result = (byte)((Reg.A << 1) | (Reg.Carry ? 1 : 0));
+                    Reg.Carry = (Reg.A & 0x80) > 0;
+                    Reg.Zero = result == 0;
+                    Reg.Negative = (result & 0x80) > 0;
+                    Reg.A = result;
+                } else {
+                    var result = (byte)((data << 1) | (Reg.Carry ? 1 : 0));
+                    Reg.Carry = (data & 0x80) > 0;
+                    Reg.Zero = result == 0;
+                    Reg.Negative = (result & 0x80) > 0;
+                    Write(address, result);
+                }
             }
 
-            void ROR() {
-                var result = (byte)((Reg.A >> 1) | ((Reg.Carry ? 1 : 0) << 7) );
-                Reg.Carry = (Reg.A & 0x01) > 0;
-                Reg.Zero = result == 0;
-                Reg.Negative = (result & 0x80) > 0;
-                Reg.A = result;
+            void ROR(AddressingMode mode, ushort address, byte data) {
+                if (mode == AddressingMode.Accumulator) {
+                    var result = (byte)((Reg.A >> 1) | ((Reg.Carry ? 1 : 0) << 7));
+                    Reg.Carry = (Reg.A & 0x01) > 0;
+                    Reg.Zero = result == 0;
+                    Reg.Negative = (result & 0x80) > 0;
+                    Reg.A = result;
+                } else {
+                    var result = (byte)((data >> 1) | (Reg.Carry ? 1 : 0));
+                    Reg.Carry = (data & 0x01) > 0;
+                    Reg.Zero = result == 0;
+                    Reg.Negative = (result & 0x80) > 0;
+                    Write(address, result);
+                }
             }
             #endregion
 
@@ -812,10 +969,10 @@ namespace BoxNESharp {
                 Reg.PC = data;
             }
 
-            void JSR(ushort data) {
+            void JSR(ushort address) {
                 Push((byte)((Reg.PC & 0xFF00) >> 8));
                 Push((byte)(Reg.PC & 0x00FF));
-                Reg.PC = data;
+                Reg.PC = address;
             }
 
             void RTS() {
@@ -856,6 +1013,29 @@ namespace BoxNESharp {
             //    Reg.Interrupt = true;
             //    Reg.PC = ReadWord(0xFFFE);
             //}
+            #endregion
+
+            #region Compare
+            void CMP(byte data) {
+                var result = (byte)(Reg.A - data);
+                Reg.Carry = Reg.A >= data;
+                Reg.Negative = (result & 0x80) > 0;
+                Reg.Zero = result == 0;
+            }
+
+            void CPX(byte data) {
+                var result = (byte)(Reg.X - data);
+                Reg.Carry = Reg.X >= data;
+                Reg.Negative = (result & 0x80) > 0;
+                Reg.Zero = result == 0;
+            }
+
+            void CPY(byte data) {
+                var result = (byte)(Reg.Y - data);
+                Reg.Carry = Reg.Y >= data;
+                Reg.Negative = (result & 0x80) > 0;
+                Reg.Zero = result == 0;
+            }
             #endregion
 
             #region Increment/Decrement
