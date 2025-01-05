@@ -4,7 +4,6 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
-using static System.Runtime.InteropServices.JavaScript.JSType;
 
 namespace BoxNESharp {
     internal partial class BoxNESharp {
@@ -17,7 +16,7 @@ namespace BoxNESharp {
             }
             #endregion
 
-            #region クラス
+            #region 内部クラス
             /// <summary>
             /// メモリ
             /// </summary>
@@ -250,7 +249,7 @@ namespace BoxNESharp {
                 { 0xC6, new Operand(Instruction.DEC, AddressingMode.ZeroPage,5) },
                 { 0xD6, new Operand(Instruction.DEC, AddressingMode.ZeroPageX,6) },
                 { 0xCE, new Operand(Instruction.DEC, AddressingMode.Absolute,6) },
-                { 0xCE, new Operand(Instruction.DEC, AddressingMode.AbsoluteX,7) },
+                { 0xDE, new Operand(Instruction.DEC, AddressingMode.AbsoluteX,7) },
 
                 // DEX
                 { 0xCA, new Operand(Instruction.DEX, AddressingMode.Implied,2) },
@@ -361,7 +360,7 @@ namespace BoxNESharp {
                 { 0xE5, new Operand(Instruction.SBC, AddressingMode.ZeroPage,3) },
                 { 0xF5, new Operand(Instruction.SBC, AddressingMode.ZeroPageX,4) },
                 { 0xED, new Operand(Instruction.SBC, AddressingMode.Absolute,4) },
-                { 0xED, new Operand(Instruction.SBC, AddressingMode.AbsoluteX,4) },
+                { 0xFD, new Operand(Instruction.SBC, AddressingMode.AbsoluteX,4) },
                 { 0xF9, new Operand(Instruction.SBC, AddressingMode.AbsoluteY,4) },
                 { 0xE1, new Operand(Instruction.SBC, AddressingMode.IndirectX,6) },
                 { 0xF1, new Operand(Instruction.SBC, AddressingMode.IndirectY,5) },
@@ -407,22 +406,67 @@ namespace BoxNESharp {
             };
             #endregion
 
-            /// <summary>
-            /// コンストラクタ
-            /// </summary>
-            private CPU() {
+            PPU ppu = PPU.GetInstance();
+
+            public void SetRom(byte[] rom) {
+                int headerSize = 0x0010;
+                var prgSize = rom[4] * 0x4000;  // 16KB units
+                var chrSize = rom[5] * 0x2000;  // 8KB units
+
+                var chrStartIndex = headerSize + prgSize;
+                var chrEndIndex = chrStartIndex + chrSize;
+
+                DebugLog($"PRGROM Size: {prgSize.ToString()} (0x{prgSize.ToString("X4")})");
+                DebugLog($"CHRROM Size: {chrSize.ToString()} (0x{chrSize.ToString("X4")})");
+
+                DebugLog($"PRG Index Start: 0x{headerSize.ToString("X4")} End: 0x{(chrStartIndex - 1).ToString("X4")}");
+                DebugLog($"CHR Index Start: 0x{chrStartIndex.ToString("X4")} End: 0x{chrEndIndex.ToString("X4")}");
+
+                for (int i = headerSize; i < chrStartIndex - 1; i++) {
+                    Mem.RAM[0x8000 + i] = rom[i - headerSize];
+                }
+
+                // デバッグ用RAM出力s
+                DebugExportRAM();
+
+                ppu.SetCHRROM(rom[chrStartIndex..chrEndIndex]);
+
+                // デバッグ用VRAM出力
+                ppu.DebugExportVRAM();
+
+                // リセット処理
                 Reset();
+            }
+
+            public void DebugExportRAM() {
+                DebugLog("");
+                DebugLog("CPU RAM DATA");
+                StringBuilder sb = new();
+                for (int i = 0; i < Mem.RAM.Length; i++) {
+                    if (i % 16 == 0) {
+                        sb.Append($"0x{i.ToString("X4")}: ");
+                    }
+                    sb.Append(Mem.RAM[i].ToString("X2"));
+                    sb.Append(" ");
+                    if (i % 16 == 15) {
+                        DebugLog(sb.ToString());
+                        sb.Clear();
+                    }
+                }
             }
 
             /// <summary>
             /// メイン処理　1クロックごと
             /// </summary>
             public void Fetch() {
+                // 命令コードの取得
                 var opeCode = Read(Reg.PC);
                 Reg.PC++;
 
+                // オペランドの取得
                 var operand = operandDic[opeCode];
 
+                // アドレスとデータの取得
                 byte data = 0;
                 ushort address = 0;
                 switch (operand.AddressingMode) {
@@ -495,9 +539,34 @@ namespace BoxNESharp {
                         break;
                 }
 
+                // 命令実行
                 switch (operand.Instruction) {
                     case Instruction.ADC:
                         ADC(data);
+                        break;
+                    case Instruction.SBC:
+                        SBC(data);
+                        break;
+                    case Instruction.AND:
+                        AND(data);
+                        break;
+                    case Instruction.ORA:
+                        ORA(data);
+                        break;
+                    case Instruction.EOR:
+                        EOR(data);
+                        break;
+                    case Instruction.ASL:
+                        ASL(operand.AddressingMode, address, data);
+                        break;
+                    case Instruction.LSR:
+                        LSR(operand.AddressingMode, address, data);
+                        break;
+                    case Instruction.ROL:
+                        ROL();
+                        break;
+                    case Instruction.ROR:
+                        ROR();
                         break;
                 }
 
@@ -613,7 +682,7 @@ namespace BoxNESharp {
             #endregion
 
             #region Shift and Lotation
-            void ASL(AddressingMode mode, byte data = 0) {
+            void ASL(AddressingMode mode, ushort address, byte data) {
                 if(mode == AddressingMode.Accumulator) {
                     var result = (byte)(Reg.A << 1);
                     Reg.Carry = (Reg.A & 0x80) > 0;
@@ -621,15 +690,29 @@ namespace BoxNESharp {
                     Reg.Negative = (result & 0x80) > 0;
                     Reg.A = result;
                 } else {
-                    // TODO
+                    var result = (byte)(data << 1);
+                    Reg.Carry = (data & 0x80) > 0;
+                    Reg.Zero = result == 0;
+                    Reg.Negative = (result & 0x80) > 0;
+                    Write(address, result);
                 }
 
             }
 
-            void LSR() {
-                var result = (byte)(Reg.A << 1);
-                Reg.Carry = (Reg.A & 0x80) > 0;
-                Reg.A = result;
+            void LSR(AddressingMode mode, ushort address, byte data) {
+                if (mode == AddressingMode.Accumulator) {
+                    var result = (byte)(Reg.A >> 1);
+                    Reg.Carry = (Reg.A & 0x80) > 0;
+                    Reg.Zero = result == 0;
+                    Reg.Negative = (result & 0x80) > 0;
+                    Reg.A = result;
+                } else {
+                    var result = (byte)(data >> 1);
+                    Reg.Carry = (data & 0x01) > 0;
+                    Reg.Zero = result == 0;
+                    Reg.Negative = (result & 0x80) > 0;
+                    Write(address, result);
+                }
             }
 
             void ROL() {
@@ -641,7 +724,7 @@ namespace BoxNESharp {
             }
 
             void ROR() {
-                var result = (byte)((Reg.A >> 1) | ((Reg.Carry ? 1 : 0 << 7)) );
+                var result = (byte)((Reg.A >> 1) | ((Reg.Carry ? 1 : 0) << 7) );
                 Reg.Carry = (Reg.A & 0x01) > 0;
                 Reg.Zero = result == 0;
                 Reg.Negative = (result & 0x80) > 0;

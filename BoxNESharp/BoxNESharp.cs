@@ -46,12 +46,34 @@ namespace BoxNESharp {
             if (DX.DxLib_Init() == -1)
                 return;
 
-            DX.SetDrawScreen(DX.DX_SCREEN_BACK); //裏画面処理を設定する
+            //裏画面処理を設定する
+            DX.SetDrawScreen(DX.DX_SCREEN_BACK);
 
             // ファイル選択
-            var path = PickAndShow();
+            var path = FilePicker();
 
-            DebugLog(path);
+            DebugLog("");
+            DebugLog($"FilePath: {path}");
+
+            // romファイル読み込み
+            byte[] rom = ReadFile(path);
+
+            //DebugLog($"Length: {rom.Length.ToString()} (0x{rom.Length.ToString("X2")})");
+            //StringBuilder sb = new StringBuilder();
+            //for (int i = 0; i < rom.Length; i++) {
+            //    sb.Append(rom[i].ToString("X2"));
+            //    sb.Append(" ");
+            //    if (i % 16 == 15) {
+            //        DebugLog(sb.ToString());
+            //        sb.Clear();
+            //    }
+            //}
+            //if (sb.Length > 0) {
+            //    DebugLog(sb.ToString());
+            //}
+
+            // ROMをCPUに設定
+            cpu.SetRom(rom);
 
             int cnt = 0;
 
@@ -64,6 +86,7 @@ namespace BoxNESharp {
 
                 DX.ScreenFlip(); //2つの画面を入れ替える
 
+                cnt++;
                 if (cnt > 100) {
                     break;
                 }
@@ -74,7 +97,7 @@ namespace BoxNESharp {
             DX.DxLib_End();
         }
 
-        static string PickAndShow() {
+        static string FilePicker() {
             string path = string.Empty;
             using (CommonOpenFileDialog cofd = new CommonOpenFileDialog()) {
                 cofd.IsFolderPicker = false;
@@ -86,8 +109,26 @@ namespace BoxNESharp {
             return path;
         }
 
-        public static void DebugLog(string text) {
-            System.Diagnostics.Debug.WriteLine(text);
+        static byte[] ReadFile(string path) {
+            byte[] file = [];
+            try {
+                file = File.ReadAllBytes(path);
+            } catch (Exception e) {
+                DebugLog(e.Message);
+            }
+            return file;
+        }
+
+        /// <summary>
+        /// ログを出力する
+        /// </summary>
+        public static void DebugLog(string text, bool exportLogFile = true) {
+            //System.Diagnostics.Debug.WriteLine(text);
+            
+            Console.WriteLine(text);
+            if (exportLogFile) {
+                Logger.GetInstance().Debug(text);
+            }
         }
     }
 }
