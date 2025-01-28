@@ -32,6 +32,8 @@ namespace BoxNESharp {
         // PPU
         static PPU ppu = PPU.GetInstance();
 
+        public static int Cycle { get; private set; }
+
         /// <summary>
         /// メイン関数
         /// </summary>
@@ -81,7 +83,7 @@ namespace BoxNESharp {
             //}
 
             // ROMをCPUに設定
-            cpu.SetRom(rom);
+            cpu.SetRom(rom, 0);
 
             int cnt = 0;
 
@@ -91,19 +93,30 @@ namespace BoxNESharp {
                 DX.ClearDrawScreen(); //裏画面をクリアする
 
                 var cycle = cpu.Fetch();
+                Cycle += cycle;
+
+                if(Cycle > 332) {
+                    Cycle -= 332;
+                }
 
                 DX.ScreenFlip(); //2つの画面を入れ替える
 
                 cnt++;
-                if (cnt > 100) {
-                    cpu.DebugExportRAM();
+                //if (cnt >= 1104) {
+                if (cnt >= 10000) {
+                    //cpu.DebugExportRAM();
                     ppu.DebugExportVRAM();
                     break;
                 }
             }
+            DebugLog("End.", false);
 
+            while (true) {
+                if (DX.CheckHitKey(DX.KEY_INPUT_ESCAPE) != 0) {
+                    break;
+                }
+            }
             // DXライブラリ終了
-
             DX.DxLib_End();
         }
 
@@ -129,16 +142,19 @@ namespace BoxNESharp {
             return file;
         }
 
+        static int logNum = -5;
         /// <summary>
         /// ログを出力する
         /// </summary>
         public static void DebugLog(string text, bool exportLogFile = true) {
             //System.Diagnostics.Debug.WriteLine(text);
-            
-            Console.WriteLine(text);
-            if (exportLogFile) {
-                Logger.GetInstance().Debug(text);
-            }
+            //if(logNum >= 1000) {
+                Console.WriteLine($"{logNum.ToString("D4")}: {text}");
+                if (exportLogFile) {
+                    Logger.GetInstance().Debug(text);
+                }
+            //}
+            logNum++;
         }
     }
 }

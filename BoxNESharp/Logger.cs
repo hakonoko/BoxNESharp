@@ -33,7 +33,7 @@ class Logger {
     /// コンストラクタ
     /// </summary>
     private Logger() {
-        this.logFilePath = Settings.Default.LOGDIR_PATH + Settings.Default.LOGFILE_NAME + ".log";
+        this.logFilePath = Settings.Default.LOGDIR_PATH + Settings.Default.LOGFILE_NAME + "_" + DateTime.Now.ToString("yyyyMMdd") + ".log";
 
         // ログファイルを生成する
         CreateLogfile(new FileInfo(logFilePath));

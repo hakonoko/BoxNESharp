@@ -1,9 +1,11 @@
 ﻿using DxLibDLL;
+using MS.WindowsAPICodePack.Internal;
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using static Microsoft.WindowsAPICodePack.Shell.PropertySystem.SystemProperties.System;
 
 namespace BoxNESharp {
     internal partial class BoxNESharp {
@@ -24,22 +26,6 @@ namespace BoxNESharp {
             /// </summary>
             private class Memory {
                 public byte[] RAM = new byte[0xFFFF];
-
-                public void Write(ushort address, byte data) {
-                    if (address == 0x2006) {
-                        // PPUのアドレスレジスタ
-                        // 2回書き込むとアドレスが変わる
-                        // 1回目は上位アドレス
-                        // 2回目は下位アドレス
-                        // TODO
-                    }else if(address == 0x2007) {
-                        // PPUのデータレジスタ
-                        // 書き込むとVRAMに書き込む
-                        // TODO
-                    } else {
-                        RAM[address] = data;
-                    }
-                }
 
                 //public byte[] WRAM = new byte[0x0800];
                 //public byte[] PPU = new byte[0x0008];
@@ -86,6 +72,17 @@ namespace BoxNESharp {
                 public bool Interrupt { get => (P & 0b00000100) > 0; set => P = (byte)((P & ~(0b00000100)) | (value ? 1 : 0) << 2); }
                 public bool Zero { get => (P & 0b00000010) > 0; set => P = (byte)((P & ~(0b00000010)) | (value ? 1 : 0) << 1); }
                 public bool Carry { get => (P & 0b00000001) > 0; set => P = (byte)((P & ~(0b00000001)) | (value ? 1 : 0)); }
+
+                public Register() { }
+
+                public void Set(Register reg) {
+                    this.A = reg.A;
+                    this.X = reg.X;
+                    this.Y = reg.Y;
+                    this.PC = reg.PC;
+                    this.SP = reg.SP;
+                    this.P = reg.P;
+                }
             }
             #endregion
 
@@ -424,10 +421,10 @@ namespace BoxNESharp {
             };
             #endregion
 
-            public void SetRom(byte[] rom) {
+            public void SetRom(byte[] rom, int mapper) {
                 int headerSize = 0x0010;
-                var prgSize = rom[4] * 0x4000;  // 16KB units
-                var chrSize = rom[5] * 0x2000;  // 8KB units
+                var prgSize = (rom[4] * 0x4000) - 1;  // 16KB units
+                var chrSize = (rom[5] * 0x2000) - 1;  // 8KB units
 
                 var chrStartIndex = headerSize + prgSize;
                 var chrEndIndex = chrStartIndex + chrSize;
@@ -438,20 +435,21 @@ namespace BoxNESharp {
                 DebugLog($"PRG Index Start: 0x{headerSize.ToString("X4")} End: 0x{(chrStartIndex - 1).ToString("X4")}");
                 DebugLog($"CHR Index Start: 0x{chrStartIndex.ToString("X4")} End: 0x{chrEndIndex.ToString("X4")}");
 
-                for (int i = headerSize; i < chrStartIndex - 1; i++) {
-                    Mem.RAM[0x8000 + i - headerSize] = rom[i];
+                // TODO : Mapper別の対応 現在は0だけ
+                Array.Copy(rom, headerSize, Mem.RAM, 0x8000, prgSize);
+                if (rom[4] == 1) {
+                    Array.Copy(rom, headerSize, Mem.RAM, 0xC000, prgSize);
                 }
-
-                // デバッグ用RAM出力
-                //DebugExportRAM();
 
                 ppu.SetCHRROM(rom[chrStartIndex..chrEndIndex]);
 
-                // デバッグ用VRAM出力
-                //ppu.DebugExportVRAM();
-
                 // リセット処理
                 Reset();
+                // BRKの7サイクル
+                Cycle += 7;
+
+                //nestestのテスト用
+                //Reg.PC = 0xC000;
             }
 
             public void DebugExportRAM() {
@@ -471,17 +469,21 @@ namespace BoxNESharp {
                 }
             }
 
+            Register tempReg = new();
+
             /// <summary>
             /// メイン処理　1クロックごと
             /// </summary>
             public int Fetch() {
+                tempReg.Set(Reg);
+
                 // 命令コードの取得
                 var opeCode = Read(Reg.PC);
                 Reg.PC++;
 
                 // オペランドの取得
                 var operand = operandDic[opeCode];
-
+                
                 // アドレスとデータの取得
                 byte data = 0;
                 ushort address = 0;
@@ -496,8 +498,7 @@ namespace BoxNESharp {
                         break;
 
                     case AddressingMode.Relative:
-                        address = (ushort)(Reg.PC + Read(Reg.PC));
-                        data = Read(address);
+                        data = Read(Reg.PC);
                         Reg.PC++;
                         break;
 
@@ -544,13 +545,15 @@ namespace BoxNESharp {
 
                     case AddressingMode.IndirectX:
                         address = Read(Reg.PC);
-                        data = Read((ushort)(address + Reg.X));
+                        address = ReadWord((ushort)(address + Reg.X));
+                        data = Read(address);
                         Reg.PC++;
                         break;
 
                     case AddressingMode.IndirectY:
                         address = Read(Reg.PC);
-                        data = (byte)(Read(address) + Reg.Y);
+                        address = (ushort)(ReadWord(address) + Reg.Y);
+                        data = Read(address);
                         Reg.PC++;
                         break;
                 }
@@ -612,7 +615,7 @@ namespace BoxNESharp {
                         BIT(data);
                         break;
                     case Instruction.JMP:
-                        JMP(data);
+                        JMP(address);
                         break;
                     case Instruction.JSR:
                         JSR(address);
@@ -727,6 +730,12 @@ namespace BoxNESharp {
                         break;
                 }
 
+                // PPUにサイクルを渡す
+                ppu.Run(operand.Cycle);
+
+                // デバッグログ
+                //CPU_DebugLog(tempReg, operand, address, data);
+
                 return operand.Cycle;
 
                 /*
@@ -760,9 +769,34 @@ namespace BoxNESharp {
                 */
             }
 
+            private void CPU_DebugLog(Register reg, Operand operand, ushort address, byte data) {
+                StringBuilder sb = new();
+                sb.Append($"{reg.PC.ToString("X4")}");
+                sb.Append($" {operandDic.FirstOrDefault(x => x.Value.Equals(operand)).Key.ToString("X2")}");
+                sb.Append($" {operand.Instruction}");
+                sb.Append($" {address.ToString("X4")}");
+                if (data != 0) {
+                    sb.Append($" {data.ToString("X2")}");
+                    //sb.Append($"\t");
+                } else {
+                    sb.Append($"\t");
+                }
+                sb.Append($"\t");
+                sb.Append($"A:{reg.A.ToString("X2")}");
+                sb.Append($" X:{reg.X.ToString("X2")}");
+                sb.Append($" Y:{reg.Y.ToString("X2")}");
+                sb.Append($" P:{reg.P.ToString("X2")}");
+                sb.Append($" SP:{reg.SP.ToString("X2")}");
+                sb.Append($" CYC:{Cycle}");
+                sb.Append($" \t");
+                sb.Append($" {operand.AddressingMode}");
+
+                DebugLog(sb.ToString());
+            }
+
             #region Read/Write
             /// <summary>
-            /// 1バイト読込
+            /// 1バイト読込み
             /// </summary>
             /// <returns></returns>
             byte Read(ushort address) {
@@ -770,27 +804,38 @@ namespace BoxNESharp {
             }
 
             /// <summary>
-            /// 2バイト読込
+            /// 2バイト読込み
             /// </summary>
             /// <returns></returns>
             ushort ReadWord(ushort address) {
                 return (ushort)(Read(address) | (Read((ushort)(address + 1)) << 8));
             }
 
+            /// <summary>
+            /// 書込み
+            /// </summary>
+            /// <param name="address"></param>
+            /// <param name="data"></param>
             void Write(ushort address, byte data) {
-                Mem.RAM[address] = data;
+                if ((0x2000 <= address && address <= 0x2007) || address == 0x4014) {
+                    ppu.WriteVRAMFromRegister(address, data);
+                } else {
+                    Mem.RAM[address] = data;
+                }
             }
             #endregion
 
             #region Pop/Push
             void Push(byte data) {
                 Write((ushort)(0x0100 | Reg.SP), data);
-                Reg.SP++;
+                //DebugLog($"Push: {data.ToString("X2")} to 0x{Reg.SP.ToString("X2")}");
+                Reg.SP--;
             }
 
             byte Pop() {
+                Reg.SP++;
                 var result = Read((ushort)(0x0100 | Reg.SP));
-                Reg.SP--;
+                //DebugLog($"Pop: {result.ToString("X2")} from 0x{Reg.SP.ToString("X2")}");
                 return result;
             }
             #endregion
@@ -799,21 +844,23 @@ namespace BoxNESharp {
 
             #region Calculation
             void ADC(byte data) {
-                var result = (byte)(Reg.A + data + (byte)(Reg.Carry ? 1 : 0));
+                var result = (ushort)(Reg.A + data + (Reg.Carry ? 1 : 0));
+                var resultByte = (byte)(result & 0xFF);
                 Reg.Carry = result > 0xFF;
-                Reg.Zero = result == 0;
-                Reg.Overflow = ((result ^ Reg.A) & (result ^ data) & 0x80) > 0;
-                Reg.Negative = (result & 0x80) > 0;
-                Reg.A = result;
+                Reg.Zero = resultByte == 0;
+                Reg.Overflow = ((resultByte ^ Reg.A) & (resultByte ^ data) & 0x80) > 0;
+                Reg.Negative = (resultByte & 0x80) > 0;
+                Reg.A = resultByte;
             }
 
             void SBC(byte data) {
-                var result = (byte)(Reg.A - data - (byte)(!Reg.Carry ? 1 : 0));
+                var result = Reg.A - data - (!Reg.Carry ? 1 : 0);
+                var resultByte = (byte)(result & 0xFF);
                 Reg.Carry = !(result < 0);
-                Reg.Zero = result == 0;
-                Reg.Overflow = (byte)((result ^ ~Reg.A) & (result ^ ~data) & 0x80) > 0;
-                Reg.Negative = (result & 0x80) > 0;
-                Reg.A = result;
+                Reg.Zero = resultByte == 0;
+                Reg.Overflow = (byte)((resultByte ^ Reg.A) & (resultByte ^ ~data) & 0x80) > 0;
+                Reg.Negative = (resultByte & 0x80) > 0;
+                Reg.A = resultByte;
             }
             #endregion
 
@@ -861,7 +908,7 @@ namespace BoxNESharp {
             void LSR(AddressingMode mode, ushort address, byte data) {
                 if (mode == AddressingMode.Accumulator) {
                     var result = (byte)(Reg.A >> 1);
-                    Reg.Carry = (Reg.A & 0x80) > 0;
+                    Reg.Carry = (Reg.A & 0x01) > 0;
                     Reg.Zero = result == 0;
                     Reg.Negative = (result & 0x80) > 0;
                     Reg.A = result;
@@ -910,65 +957,49 @@ namespace BoxNESharp {
             #region Branch
             void BCC(byte data) {
                 if (!Reg.Carry) {
-                    Reg.PC = (ushort)(Reg.PC + 1 + data);
-                } else {
-                    Reg.PC++;
+                    Reg.PC = (ushort)(Reg.PC + ((data & 0x80) > 0 ? ((~data & 0x7F) + 1) * -1 : data));
                 }
             }
 
             void BCS(byte data) {
                 if (Reg.Carry) {
-                    Reg.PC = (ushort)(Reg.PC + 1 + data);
-                } else {
-                    Reg.PC++;
+                    Reg.PC = (ushort)(Reg.PC + ((data & 0x80) > 0 ? ((~data & 0x7F) + 1) * -1 : data));
                 }
             }
 
             void BNE(byte data) {
                 if (!Reg.Zero) {
-                    Reg.PC = (ushort)(Reg.PC + 1 + data);
-                } else {
-                    Reg.PC++;
+                    Reg.PC = (ushort)(Reg.PC + ((data & 0x80) > 0 ? ((~data & 0x7F) + 1) * -1 : data));
                 }
             }
 
             void BEQ(byte data) {
                 if (Reg.Zero) {
-                    Reg.PC = (ushort)(Reg.PC + 1 + data);
-                } else {
-                    Reg.PC++;
+                    Reg.PC = (ushort)(Reg.PC + ((data & 0x80) > 0 ? ((~data & 0x7F) + 1) * -1 : data));
                 }
             }
 
             void BVC(byte data) {
                 if (!Reg.Overflow) {
-                    Reg.PC = (ushort)(Reg.PC + 1 + data);
-                } else {
-                    Reg.PC++;
+                    Reg.PC = (ushort)(Reg.PC + ((data & 0x80) > 0 ? ((~data & 0x7F) + 1) * -1 : data));
                 }
             }
 
             void BVS(byte data) {
                 if (Reg.Overflow) {
-                    Reg.PC = (ushort)(Reg.PC + 1 + data);
-                } else {
-                    Reg.PC++;
+                    Reg.PC = (ushort)(Reg.PC + ((data & 0x80) > 0 ? ((~data & 0x7F) + 1) * -1 : data));
                 }
             }
 
             void BPL(byte data) {
                 if (!Reg.Negative) {
-                    Reg.PC = (ushort)(Reg.PC + 1 + data);
-                } else {
-                    Reg.PC++;
+                    Reg.PC = (ushort)(Reg.PC + ((data & 0x80) > 0 ? ((~data & 0x7F) + 1) * -1 : data));
                 }
             }
 
             void BMI(byte data) {
                 if (Reg.Negative) {
-                    Reg.PC = (ushort)(Reg.PC + 1 + data);
-                } else {
-                    Reg.PC++;
+                    Reg.PC = (ushort)(Reg.PC + ((data & 0x80) > 0 ? ((~data & 0x7F) + 1) * -1 : data));
                 }
             }
             #endregion
@@ -976,27 +1007,28 @@ namespace BoxNESharp {
             #region Bit Test
             void BIT(byte data) {
                 var result = (byte)(Reg.A & data);
-                Reg.Overflow = (Reg.A & 0x40) > 0;
+                Reg.Overflow = (data & 0x40) > 0;
                 Reg.Zero = result == 0;
-                Reg.Negative = (result & 0x80) > 0;
+                Reg.Negative = (data & 0x80) > 0;
             }
             #endregion
 
             #region Jump
-            void JMP(byte data) {
-                Reg.PC = data;
+            void JMP(ushort address) {
+                Reg.PC = address;
             }
 
             void JSR(ushort address) {
-                Push((byte)((Reg.PC & 0xFF00) >> 8));
-                Push((byte)(Reg.PC & 0x00FF));
+                var data = Reg.PC - 1;
+                Push((byte)((data & 0xFF00) >> 8));
+                Push((byte)(data & 0x00FF));
                 Reg.PC = address;
             }
 
             void RTS() {
                 var low = Pop();
                 var high = Pop();
-                Reg.PC = (ushort)(high << 8 | low) ;
+                Reg.PC = (ushort)((high << 8 | low) + 1) ;
             }
             #endregion
 
@@ -1014,7 +1046,12 @@ namespace BoxNESharp {
             }
             
             void RTI() {
-                Reg.P = Pop();
+                var status = Pop();
+                byte mask = 0b11001111;
+                byte temp1 = (byte)(status & mask);
+                byte temp2 = (byte)(Reg.P & (byte)(~mask));
+                Reg.P = (byte)(temp1 | temp2);
+
                 var low = Pop();
                 var high = Pop();
                 Reg.PC = (ushort)((high << 8) | low);
@@ -1037,22 +1074,22 @@ namespace BoxNESharp {
             void CMP(byte data) {
                 var result = (byte)(Reg.A - data);
                 Reg.Carry = Reg.A >= data;
+                Reg.Zero = Reg.A == data;
                 Reg.Negative = (result & 0x80) > 0;
-                Reg.Zero = result == 0;
             }
 
             void CPX(byte data) {
                 var result = (byte)(Reg.X - data);
                 Reg.Carry = Reg.X >= data;
+                Reg.Zero = Reg.X == data;
                 Reg.Negative = (result & 0x80) > 0;
-                Reg.Zero = result == 0;
             }
 
             void CPY(byte data) {
                 var result = (byte)(Reg.Y - data);
                 Reg.Carry = Reg.Y >= data;
+                Reg.Zero = Reg.Y == data;
                 Reg.Negative = (result & 0x80) > 0;
-                Reg.Zero = result == 0;
             }
             #endregion
 
@@ -1126,7 +1163,7 @@ namespace BoxNESharp {
             }
 
             void CLV() {
-                Reg.Negative = false;
+                Reg.Overflow = false;
             }
             #endregion
 
@@ -1211,16 +1248,32 @@ namespace BoxNESharp {
 
             void PLA() {
                 var result = Pop();
+                Reg.Negative = (result & 0x80) > 0;
+                Reg.Zero = result == 0;
                 Reg.A = result;
             }
-
+            
             void PHP() {
-                Push(Reg.P);
+                //($0100 + SP) = NV11DIZC
+                var result = (byte)(Reg.P | 0b00110000);
+                Push(result);
             }
 
             void PLP() {
                 var result = Pop();
-                Reg.P = result;
+
+                byte mask = 0b11001111;
+                byte temp1 = (byte)(result & mask);
+                byte temp2 = (byte)(Reg.P & (byte)(~mask));
+                Reg.P = (byte)(temp1 | temp2);
+
+                //Reg.Carry = (result & 1) > 0;
+                //Reg.Zero = (result & (1 << 1)) > 0;
+                //Reg.Interrupt = (result & (1 << 2 )) > 0;
+                //Reg.Decimal = (result & (1 << 3)) > 0;
+                //Reg.Overflow = (result & (1 << 6)) > 0;
+                //Reg.Carry = (result & (1 << 7)) > 0;
+                //Reg.P = result;
             }
             #endregion
 
@@ -1234,6 +1287,8 @@ namespace BoxNESharp {
 
                 // PCを初期化
                 Reg.PC = ReadWord(0xFFFC);
+                // SPを初期化
+                Reg.SP = 0xFD;
             }
             #endregion
 
