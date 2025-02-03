@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using DxLibDLL;
 using System.Windows.Forms;
 using Microsoft.WindowsAPICodePack.Dialogs;
+using System.Printing;
 
 namespace BoxNESharp {
     internal partial class BoxNESharp {
@@ -21,11 +22,11 @@ namespace BoxNESharp {
         /// </summary>
         const int WIN_SCALE_FACTOR = 2;
 
-        public static int WindowSizeW { get => ORIGINAL_W * WIN_SCALE_FACTOR; }
-        public static int WindowSizeH { get => ORIGINAL_H * WIN_SCALE_FACTOR; }
+        public static int WINDOW_SIZE_W { get => ORIGINAL_W * WIN_SCALE_FACTOR; }
+        public static int WINDOW_SIZE_H { get => ORIGINAL_H * WIN_SCALE_FACTOR; }
 
-        public static int DotSizeW { get => WindowSizeW / ORIGINAL_W; }
-        public static int DotSizeH { get => WindowSizeH / ORIGINAL_H; }
+        public static int DOT_SIZE_X { get => WINDOW_SIZE_W / ORIGINAL_W; }
+        public static int DOT_SIZE_Y { get => WINDOW_SIZE_H / ORIGINAL_H; }
 
         // CPU
         static CPU cpu = CPU.GetInstance();
@@ -44,7 +45,7 @@ namespace BoxNESharp {
             DX.SetWindowSizeChangeEnableFlag(DX.TRUE);
             DX.SetFullScreenResolutionMode(DX.DX_FSRESOLUTIONMODE_DESKTOP);
             DX.ChangeWindowMode(DX.TRUE);
-            DX.SetGraphMode(WindowSizeW, WindowSizeH, 32);
+            DX.SetGraphMode(WINDOW_SIZE_W, WINDOW_SIZE_H, 32);
 
             // DXライブラリの初期化
             if (DX.DxLib_Init() == -1)
@@ -64,6 +65,10 @@ namespace BoxNESharp {
 
             DebugLog("");
             DebugLog($"FilePath: {path}");
+
+            // VideoComponentを設定
+            VideoComponent videoComponent = new VideoComponent();
+            ppu.SetVideoComponent(videoComponent);
 
             // romファイル読み込み
             byte[] rom = ReadFile(path);
@@ -89,33 +94,27 @@ namespace BoxNESharp {
 
             // 無限ループ
             while (DX.CheckHitKey(DX.KEY_INPUT_ESCAPE) == 0) {
-                DX.ProcessMessage();
-                DX.ClearDrawScreen(); //裏画面をクリアする
 
                 var cycle = cpu.Fetch();
+
+                // PPUにサイクルを渡す
+                ppu.Run(cycle);
+
                 Cycle += cycle;
 
                 if(Cycle > 332) {
                     Cycle -= 332;
                 }
 
-                DX.ScreenFlip(); //2つの画面を入れ替える
-
                 cnt++;
                 //if (cnt >= 1104) {
-                if (cnt >= 10000) {
+                if (DX.CheckHitKey(DX.KEY_INPUT_ESCAPE) != 0) {
                     //cpu.DebugExportRAM();
                     ppu.DebugExportVRAM();
                     break;
                 }
             }
-            DebugLog("End.", false);
 
-            while (true) {
-                if (DX.CheckHitKey(DX.KEY_INPUT_ESCAPE) != 0) {
-                    break;
-                }
-            }
             // DXライブラリ終了
             DX.DxLib_End();
         }

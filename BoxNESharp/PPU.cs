@@ -12,6 +12,8 @@ namespace BoxNESharp {
         /// PPU
         /// </summary>
         class PPU {
+            IVideoComponent videoComponent;
+
             /// <summary>
             /// PPUのインスタンス
             /// </summary>
@@ -23,6 +25,11 @@ namespace BoxNESharp {
             public static PPU GetInstance() {
                 return instance;
             }
+
+            public void SetVideoComponent(IVideoComponent videoComponent) {
+                GetInstance().videoComponent = videoComponent;
+            }
+
             /// <summary>
             /// PPUのコンストラクタ
             /// </summary>
@@ -139,7 +146,7 @@ namespace BoxNESharp {
             /// <summary>
             /// PPUADDRへの書込み回数
             /// </summary>
-            int ppu_addr_write_cnt = 0;
+            byte ppu_addr_write_cnt = 0;
             /// <summary>
             /// PPUADDR 
             /// </summary>
@@ -159,7 +166,7 @@ namespace BoxNESharp {
             /// <param name="address"></param>
             /// <param name="data"></param>
             public void WriteVRAMFromRegister(ushort address, byte data) {
-                DebugLog($"WriteVRAMFromRegister: 0x{address.ToString("X4")}, 0x{data.ToString("X2")}");
+                //DebugLog($"WriteVRAMFromRegister: 0x{address.ToString("X4")}, 0x{data.ToString("X2")}");
                 switch (address) {
                     case 0x2000:
                         Reg.CTLREG1 = data;
@@ -257,12 +264,9 @@ namespace BoxNESharp {
 
                     // TODO: 描画処理
                     if (line <= 240 && line % 8 == 0) {
-                        // 8x8のタイルを描画
-                        for (int i = 0; i < 32; i++) {
-                            DebugLog($"タイルの描画");
-                            // タイルの描画
-                            DrawBackground();
-                        }
+                        DebugLog($"タイルの描画");
+                        // タイルの描画
+                        DrawBackground();
 
                         if (line == 240) {
                             // VBlank開始
@@ -277,7 +281,6 @@ namespace BoxNESharp {
                         Mem.VRAM[0x2002] &= 0x7F;
                         line = 0;
                     }
-
                 }
             }
 
@@ -285,58 +288,87 @@ namespace BoxNESharp {
 
             private void DrawBackground() {
                 //Xタイルは32個, Yタイルは30個
-                var tileY = line % 30;
-                for (int tileX = 0; tileX < 32; tileX++) {
-                    (var tile, var paletteId) = BuildTile(tileX, tileY);
+                // Pixelsは[y,x]
+                Color[,] pixels = new Color[8 * 30, 8 * 32];
+                int[,] intPixels = new int[8 * 30, 8 * 32];
 
-                    if (paletteId != 0) {
+                for (int tileY = 0; tileY < 30; tileY++) {
+                    for (int tileX = 0; tileX < 32; tileX++) {
+                        (var tile, var paletteId) = BuildTile(tileX, tileY);
+
                         // タイルの描画
                         for (int y = 0; y < 8; y++) {
                             for (int x = 0; x < 8; x++) {
                                 int shift = 7 - x;
-                                var color = (tile[0] >> shift);
-                                color |= (tile[1] >> shift) << 1;
+                                // lowとhighを合成
+                                var color = (tile[y] >> shift) & 0x01;
+                                color |= ((tile[y + 8] >> shift) & 0x01) << 1;
+                                // colorの値は0～3
                                 var colorId = color + (paletteId * 4);
                                 var colorValue = colorDictionary[colorId];
-                                // 画面に描画
-                                DX.DrawPixel(tileX * 8 + x, tileY * 8 + y, DX.GetColor(colorValue.R, colorValue.G, colorValue.B));
+
+                                // 配列にDotの色を格納
+                                intPixels[tileY * 8 + y, tileX * 8 + x] = color;
                             }
                         }
                     }
                 }
+
+                // 画面に描画
+                videoComponent.DrawScreen(pixels, DOT_SIZE_X, DOT_SIZE_Y);
+
+                //StringBuilder sb = new StringBuilder();
+                //sb.AppendLine();
+                //for (int y = 0; y < intPixels.GetLength(0); y++) {
+                //    for (int x = 0; x < intPixels.GetLength(1); x++) {
+                //        var color = intPixels[y, x];
+                //        sb.Append(color);
+                //    }
+                //    sb.AppendLine();
+                //}
+                //DebugLog(sb.ToString());
             }
 
             private (byte[], byte) BuildTile(int tileX, int tileY) {
-                var nameTableId = tileY * 32 + tileX;
+                var nameTableId = tileY * 30 + tileX;
 
-                var blockID = GetBlockID(tileX, tileY);
+                var patternID = GetPatternID(tileX, tileY);
                 var attribute = GetAttribute(tileX, tileY);
-                var paletteID = GetPalleteID(tileX, tileY);
+                var paletteID = GetPalleteID(tileX, tileY, attribute);
 
+                if(patternID != 0) 
+                    DebugLog($"blockID: {patternID.ToString("X2")}, X: {tileX.ToString("D2")}, Y: {tileY.ToString("D2")}");
+                
                 var palette = attribute switch {
-                    0 => (byte)(paletteID & 0b11),
-                    1 => (byte)((paletteID >> 2) & 0b11),
-                    2 => (byte)((paletteID >> 4) & 0b11),
-                    3 => (byte)((paletteID >> 6) & 0b11),
+                    0b00 => (byte)(paletteID & 0b11),
+                    0b01 => (byte)((paletteID >> 2) & 0b11),
+                    0b10 => (byte)((paletteID >> 4) & 0b11),
+                    0b11 => (byte)((paletteID >> 6) & 0b11),
                     _ => throw new Exception("Invalid attribute")
                 };
 
-                byte[] tile = new byte[2];
                 var blockAddrOffset = (ushort)(0x0000);
-                tile[0] = ReadVRAM((ushort)(blockAddrOffset + blockID * 16));
-                tile[1] = ReadVRAM((ushort)(blockAddrOffset + blockID * 16 + 8));
+                byte[] low = new byte[8];
+                byte[] high = new byte[8];
+                // パターンテーブルのアドレスは0x0000～または0x1000~
+                for (int i = 0; i < 8; i++) {
+                    low[i] = ReadVRAM((ushort)(blockAddrOffset + patternID * 16 + i));
+                    high[i] = ReadVRAM((ushort)(blockAddrOffset + patternID * 16 + i + 8));
+                }
+
+                byte[] tile = low.Concat(high).ToArray();
 
                 //var spriteID = GetSpriteID(tileX, tileY);
-                //var sorite = GetSprite(spriteID, blockID); 
+                //var sprite = GetSprite(spriteID, blockID); 
 
                 return (tile, palette);
             }
 
-            private byte GetBlockID(int x, int y) {
+            private byte GetPatternID(int x, int y) {
                 // TODO
                 // スタート地点は0x2000, 0x2400, 0x2800,0x2C00から、サイズは0x03BF(960)
                 // どのパターンテーブルから取得するかはregisterから取得する。
-                var addr = (ushort)(0x2000 + (y * 32) + x);
+                var addr = (ushort)(0x2000 + (y * 0x1F) + x);
                 return ReadVRAM(addr);
             }
 
@@ -349,7 +381,7 @@ namespace BoxNESharp {
                 // TODO
                 // スタート地点は0x23C0, 0x27C0, 0x2BC0,0x2FC0から、サイズは0x0040(64)
                 // どの属性テーブルから取得するかはregisterから取得する。
-                var addr = (ushort)(0x23C0 + (y / 4) * 8 + (x / 4));
+                var addr = (ushort)(0x23C0 + (y / 2) * 8 + (x / 2));
                 return ReadVRAM(addr);
             }
 
@@ -358,9 +390,10 @@ namespace BoxNESharp {
                 return [];
             }
 
-            private byte GetPalleteID(int x, int y) {
+            private byte GetPalleteID(int x, int y, byte attribute) {
                 // TODO
                 // 0x3F00から0x3F1Fまでのパレットテーブルから取得する。
+                var 
                 var addr = (ushort)(0x3F00 + (y / 4) * 8 + (x / 4));
                 return ReadVRAM(addr);
             }

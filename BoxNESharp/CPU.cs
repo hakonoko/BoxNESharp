@@ -730,17 +730,14 @@ namespace BoxNESharp {
                         break;
                 }
 
-                // PPUにサイクルを渡す
-                ppu.Run(operand.Cycle);
-
                 // デバッグログ
-                //CPU_DebugLog(tempReg, operand, address, data);
+                // CPU_DebugLog(tempReg, operand, address, data);
 
                 return operand.Cycle;
 
                 /*
                 for (int i = 0; i < 236; i++) {
-                    DX.DrawFillBox(i * DotSizeW, i * DotSizeH, (i * DotSizeW) + DotSizeW, (i * DotSizeH) + DotSizeH, DX.GetColor(0, 255, 0));
+                    DX.DrawFillBox(i * DOT_SIZE_X, i * DOT_SIZE_Y, (i * DOT_SIZE_X) + DOT_SIZE_X, (i * DOT_SIZE_Y) + DOT_SIZE_Y, DX.GetColor(0, 255, 0));
                 }
 
                 DX.DrawString(0, 0, Reg.P.ToString("b8"), DX.GetColor(255, 255, 255));
