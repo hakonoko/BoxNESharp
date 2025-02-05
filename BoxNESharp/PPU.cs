@@ -294,7 +294,7 @@ namespace BoxNESharp {
 
                 for (int tileY = 0; tileY < 30; tileY++) {
                     for (int tileX = 0; tileX < 32; tileX++) {
-                        (var tile, var paletteId) = BuildTile(tileX, tileY);
+                        (var tile, var paletteID) = BuildTile(tileX, tileY);
 
                         // タイルの描画
                         for (int y = 0; y < 8; y++) {
@@ -304,10 +304,13 @@ namespace BoxNESharp {
                                 var color = (tile[y] >> shift) & 0x01;
                                 color |= ((tile[y + 8] >> shift) & 0x01) << 1;
                                 // colorの値は0～3
-                                var colorId = color + (paletteId * 4);
+                                var colorId = ReadVRAM((ushort)(0x3F00 + (paletteID * 4) + color));
+
                                 var colorValue = colorDictionary[colorId];
 
                                 // 配列にDotの色を格納
+                                pixels[tileY * 8 + y, tileX * 8 + x] = colorValue;
+                                // デバッグ用
                                 intPixels[tileY * 8 + y, tileX * 8 + x] = color;
                             }
                         }
@@ -329,24 +332,17 @@ namespace BoxNESharp {
                 //DebugLog(sb.ToString());
             }
 
-            private (byte[], byte) BuildTile(int tileX, int tileY) {
+            private (byte[], int) BuildTile(int tileX, int tileY) {
                 var nameTableId = tileY * 30 + tileX;
 
                 var patternID = GetPatternID(tileX, tileY);
                 var attribute = GetAttribute(tileX, tileY);
                 var paletteID = GetPalleteID(tileX, tileY, attribute);
 
-                if(patternID != 0) 
-                    DebugLog($"blockID: {patternID.ToString("X2")}, X: {tileX.ToString("D2")}, Y: {tileY.ToString("D2")}");
+                //if(patternID != 0)
+                //    DebugLog($"pattern: {patternID.ToString("X2")}, X: {tileX.ToString("D2")}, Y: {tileY.ToString("D2")}");
                 
-                var palette = attribute switch {
-                    0b00 => (byte)(paletteID & 0b11),
-                    0b01 => (byte)((paletteID >> 2) & 0b11),
-                    0b10 => (byte)((paletteID >> 4) & 0b11),
-                    0b11 => (byte)((paletteID >> 6) & 0b11),
-                    _ => throw new Exception("Invalid attribute")
-                };
-
+                //タイル作成
                 var blockAddrOffset = (ushort)(0x0000);
                 byte[] low = new byte[8];
                 byte[] high = new byte[8];
@@ -361,7 +357,7 @@ namespace BoxNESharp {
                 //var spriteID = GetSpriteID(tileX, tileY);
                 //var sprite = GetSprite(spriteID, blockID); 
 
-                return (tile, palette);
+                return (tile, paletteID);
             }
 
             private byte GetPatternID(int x, int y) {
@@ -372,30 +368,38 @@ namespace BoxNESharp {
                 return ReadVRAM(addr);
             }
 
+            private byte GetAttribute(int x, int y) {
+                // TODO
+                // スタート地点は0x23C0, 0x27C0, 0x2BC0,0x2FC0から、サイズは0x0040(64)
+                // どの属性テーブルから取得するかはregisterから取得する。
+                var addr = (ushort)(0x23C0 + (y / 4) * 8 + (x / 4));
+                return ReadVRAM(addr);
+            }
+
+            private int GetPalleteID(int x, int y, byte attribute) {
+                // TODO
+                // 0x3F00から0x3F1Fまでのパレットテーブルから取得する。
+                var attrX = x % 2;
+                var attrY = y % 2;
+                var num = attrY * 2 + attrX;
+                var id = num switch {
+                    0b00 => (byte)(attribute & 0b11),
+                    0b01 => (byte)((attribute >> 2) & 0b11),
+                    0b10 => (byte)((attribute >> 4) & 0b11),
+                    0b11 => (byte)((attribute >> 6) & 0b11),
+                    _ => throw new Exception("Invalid attribute")
+                };
+                return id;
+            }
+
             private byte GetSpriteID(int x, int y) {
                 // TODO
                 return 0;
             }
 
-            private byte GetAttribute(int x, int y) {
-                // TODO
-                // スタート地点は0x23C0, 0x27C0, 0x2BC0,0x2FC0から、サイズは0x0040(64)
-                // どの属性テーブルから取得するかはregisterから取得する。
-                var addr = (ushort)(0x23C0 + (y / 2) * 8 + (x / 2));
-                return ReadVRAM(addr);
-            }
-
             private byte[] GetSprite(byte spriteID, byte blockID) {
                 // TODO
                 return [];
-            }
-
-            private byte GetPalleteID(int x, int y, byte attribute) {
-                // TODO
-                // 0x3F00から0x3F1Fまでのパレットテーブルから取得する。
-                var 
-                var addr = (ushort)(0x3F00 + (y / 4) * 8 + (x / 4));
-                return ReadVRAM(addr);
             }
 
             public void DebugExportVRAM() {

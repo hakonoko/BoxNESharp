@@ -94,7 +94,6 @@ namespace BoxNESharp {
 
             // 無限ループ
             while (DX.CheckHitKey(DX.KEY_INPUT_ESCAPE) == 0) {
-
                 var cycle = cpu.Fetch();
 
                 // PPUにサイクルを渡す
