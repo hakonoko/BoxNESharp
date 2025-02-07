@@ -109,7 +109,7 @@ namespace BoxNESharp {
                 //if (cnt >= 1104) {
                 if (DX.CheckHitKey(DX.KEY_INPUT_ESCAPE) != 0) {
                     //cpu.DebugExportRAM();
-                    ppu.DebugExportVRAM();
+                    //ppu.DebugExportVRAM();
                     break;
                 }
             }

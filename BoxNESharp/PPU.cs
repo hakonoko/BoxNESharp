@@ -264,7 +264,7 @@ namespace BoxNESharp {
 
                     // TODO: 描画処理
                     if (line <= 240 && line % 8 == 0) {
-                        DebugLog($"タイルの描画");
+                        //DebugLog($"タイルの描画");
                         // タイルの描画
                         DrawBackground();
 
@@ -295,7 +295,6 @@ namespace BoxNESharp {
                 for (int tileY = 0; tileY < 30; tileY++) {
                     for (int tileX = 0; tileX < 32; tileX++) {
                         (var tile, var paletteID) = BuildTile(tileX, tileY);
-
                         // タイルの描画
                         for (int y = 0; y < 8; y++) {
                             for (int x = 0; x < 8; x++) {
@@ -352,7 +351,11 @@ namespace BoxNESharp {
                     high[i] = ReadVRAM((ushort)(blockAddrOffset + patternID * 16 + i + 8));
                 }
 
-                byte[] tile = low.Concat(high).ToArray();
+                byte[] tile = new byte[16];
+                for (int i = 0; i < tile.Length; i++) {
+                    tile[i] = i < 8 ? low[i] : high[i - 8] ;
+                }
+                //byte[] tile = low.Concat(high).ToArray();
 
                 //var spriteID = GetSpriteID(tileX, tileY);
                 //var sprite = GetSprite(spriteID, blockID); 
@@ -363,8 +366,9 @@ namespace BoxNESharp {
             private byte GetPatternID(int x, int y) {
                 // TODO
                 // スタート地点は0x2000, 0x2400, 0x2800,0x2C00から、サイズは0x03BF(960)
-                // どのパターンテーブルから取得するかはregisterから取得する。
-                var addr = (ushort)(0x2000 + (y * 0x1F) + x);
+                // どのパターンテーブルから取得するかはregisterから取得する
+                //var addr = (ushort)(0x2000 + (y * 0x1F) + x);
+                var addr = (ushort)(0x2000 + (y * 0x20) + x);
                 return ReadVRAM(addr);
             }
 
