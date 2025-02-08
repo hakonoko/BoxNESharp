@@ -426,7 +426,7 @@ namespace BoxNESharp {
                 var prgSize = (rom[4] * 0x4000) - 1;  // 16KB units
                 var chrSize = (rom[5] * 0x2000) - 1;  // 8KB units
 
-                var chrStartIndex = headerSize + prgSize;
+                var chrStartIndex = headerSize + prgSize + 1;
                 var chrEndIndex = chrStartIndex + chrSize;
 
                 DebugLog($"PRGROM Size: {prgSize.ToString()} (0x{prgSize.ToString("X4")})");
@@ -731,39 +731,9 @@ namespace BoxNESharp {
                 }
 
                 // デバッグログ
-                // CPU_DebugLog(tempReg, operand, address, data);
+                //CPU_DebugLog(tempReg, operand, address, data);
 
                 return operand.Cycle;
-
-                /*
-                for (int i = 0; i < 236; i++) {
-                    DX.DrawFillBox(i * DOT_SIZE_X, i * DOT_SIZE_Y, (i * DOT_SIZE_X) + DOT_SIZE_X, (i * DOT_SIZE_Y) + DOT_SIZE_Y, DX.GetColor(0, 255, 0));
-                }
-
-                DX.DrawString(0, 0, Reg.P.ToString("b8"), DX.GetColor(255, 255, 255));
-
-                if (DX.CheckHitKey(DX.KEY_INPUT_1) > 0) {
-                    Reg.Negative = !Reg.Negative;
-                }
-                if (DX.CheckHitKey(DX.KEY_INPUT_2) > 0) {
-                    Reg.Overflow = !Reg.Overflow;
-                }
-                if (DX.CheckHitKey(DX.KEY_INPUT_3) > 0) {
-                    Reg.Break = !Reg.Break;
-                }
-                if (DX.CheckHitKey(DX.KEY_INPUT_4) > 0) {
-                    Reg.Decimal = !Reg.Decimal;
-                }
-                if (DX.CheckHitKey(DX.KEY_INPUT_5) > 0) {
-                    Reg.Interrupt = !Reg.Interrupt;
-                }
-                if (DX.CheckHitKey(DX.KEY_INPUT_6) > 0) {
-                    Reg.Zero = !Reg.Zero;
-                }
-                if (DX.CheckHitKey(DX.KEY_INPUT_7) > 0) {
-                    Reg.Carry = !Reg.Carry;
-                }
-                */
             }
 
             private void CPU_DebugLog(Register reg, Operand operand, ushort address, byte data) {
@@ -815,7 +785,7 @@ namespace BoxNESharp {
             /// <param name="data"></param>
             void Write(ushort address, byte data) {
                 if ((0x2000 <= address && address <= 0x2007) || address == 0x4014) {
-                    ppu.WriteVRAMFromRegister(address, data);
+                    ppu.WriteVRAMFromCPU(address, data);
                 } else {
                     Mem.RAM[address] = data;
                 }

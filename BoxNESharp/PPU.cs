@@ -165,7 +165,7 @@ namespace BoxNESharp {
             /// </summary>
             /// <param name="address"></param>
             /// <param name="data"></param>
-            public void WriteVRAMFromRegister(ushort address, byte data) {
+            public void WriteVRAMFromCPU(ushort address, byte data) {
                 //DebugLog($"WriteVRAMFromRegister: 0x{address.ToString("X4")}, 0x{data.ToString("X2")}");
                 switch (address) {
                     case 0x2000:
@@ -206,7 +206,7 @@ namespace BoxNESharp {
                             ppu_addr |= data;
                         }
                         ppu_addr_write_cnt++;
-                        Mem.VRAM[address] = data;
+                        //Mem.VRAM[address] = data;
                         break;
                     case 0x2007:
                         // PPUDATA
@@ -227,7 +227,7 @@ namespace BoxNESharp {
             /// </summary>
             /// <param name="address"></param>
             /// <returns></returns>
-            public byte ReadVRAMFromPPURegister(ushort address) {
+            public byte ReadVRAMFromCPU(ushort address) {
                 if (address == 0x2002) {
                     // PPUSTATUS
                     byte ret = Mem.VRAM[address];
@@ -300,8 +300,8 @@ namespace BoxNESharp {
                             for (int x = 0; x < 8; x++) {
                                 int shift = 7 - x;
                                 // lowとhighを合成
-                                var color = (tile[y] >> shift) & 0x01;
-                                color |= ((tile[y + 8] >> shift) & 0x01) << 1;
+                                var color = (tile[y + 8] >> shift) & 0x01;
+                                color |= ((tile[y] >> shift) & 0x01) << 1;
                                 // colorの値は0～3
                                 var colorId = ReadVRAM((ushort)(0x3F00 + (paletteID * 4) + color));
 
