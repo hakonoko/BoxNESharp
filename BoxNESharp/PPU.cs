@@ -109,15 +109,16 @@ namespace BoxNESharp {
 
             #region PPU Register
             private class Register {
-                public byte CTLREG1 = 0;
-                public byte CTLREG2 = 0;
+                public byte PPUCTRL = 0;
+                public byte PPUMASK = 0;
+                public byte PPUSTATUS = 0;
                 public byte OAMADDR = 0;
             }
             #endregion
 
             #region Memory
             private class Memory {
-                public byte[] VRAM = new byte[0x3FFF];
+                public byte[] VRAM = new byte[0x4000];
             }
             #endregion
 
@@ -152,6 +153,10 @@ namespace BoxNESharp {
             /// </summary>
             ushort ppu_addr = 0;
 
+            public byte DebugReadPPUCTRL { get => Reg.PPUCTRL; }
+            public byte DebugReadPPUMASK { get => Reg.PPUMASK; }
+            public byte DebugReadPPUSTATUS { get => Reg.PPUSTATUS; }
+
             private byte ReadVRAM(ushort address) {
                 return Mem.VRAM[address];
             }
@@ -169,10 +174,10 @@ namespace BoxNESharp {
                 //DebugLog($"WriteVRAMFromRegister: 0x{address.ToString("X4")}, 0x{data.ToString("X2")}");
                 switch (address) {
                     case 0x2000:
-                        Reg.CTLREG1 = data;
+                        Reg.PPUCTRL = data;
                         break;
                     case 0x2001:
-                        Reg.CTLREG2 = data;
+                        Reg.PPUMASK = data;
                         break;
                     case 0x2002:
                         // 読み込みのみ
@@ -184,7 +189,7 @@ namespace BoxNESharp {
                     case 0x2004:
                         // OAMDATA
                         // OAMADDRの値を使ってOAMDATAに書き込む
-                        Mem.VRAM[Reg.OAMADDR] = data;
+                        WriteVRAM(Reg.OAMADDR, data);
                         Reg.OAMADDR++;
                         break;
                     case 0x2005:
@@ -210,13 +215,13 @@ namespace BoxNESharp {
                         break;
                     case 0x2007:
                         // PPUDATA
-                        Mem.VRAM[ppu_addr] = data;
+                        WriteVRAM(ppu_addr, data);
                         // PPUADDRのインクリメント
                         ppu_addr++;
                         ppu_addr_write_cnt = 0;
                         break;
                     default:
-                        Mem.VRAM[address] = data;
+                        // Mem.VRAM[address] = data;
                         break;
                 }
             }
@@ -230,22 +235,24 @@ namespace BoxNESharp {
             public byte ReadVRAMFromCPU(ushort address) {
                 if (address == 0x2002) {
                     // PPUSTATUS
-                    byte ret = Mem.VRAM[address];
+                    byte ret = Reg.PPUSTATUS;
+                    // VBlankフラグをクリア
+                    Reg.PPUSTATUS &= 0x7F;
+                    // 0x2005の書込み順序をクリア
+
                     return ret;
-                } else if (address == 0x2004) {
-                    // OAMDATA
-                    return Mem.VRAM[address];
                 } else if (address == 0x2007) {
                     // PPUDATA
                     // パレットテーブル以外はバッファを噛まして値を返す
                     byte ret;
                     if (ppu_addr >= 0x3F00) {
-                        ret = Mem.VRAM[ppu_addr];
+                        ret = ReadVRAM(ppu_addr);
                     } else {
                         ret = ppu_read_buffer;
-                        ppu_read_buffer = Mem.VRAM[ppu_addr];
+                        ppu_read_buffer = ReadVRAM(ppu_addr);
                     }
                     // PPUADDRのインクリメント
+                    DebugLog($"ReadVRAM 0x2007: {ret}");
                     ppu_addr++;
                     return ret;
                 }
@@ -262,23 +269,29 @@ namespace BoxNESharp {
                     // 1ライン描画
                     line++;
 
-                    // TODO: 描画処理
-                    if (line <= 240 && line % 8 == 0) {
+                    // 描画処理
+                    //if (line <= 241 && line % 8 == 0) {
+                    if (line == 240) {
                         //DebugLog($"タイルの描画");
                         // タイルの描画
                         DrawBackground();
+                    }
 
-                        if (line == 240) {
-                            // VBlank開始
+                    if (line == 241) {
+                        DebugLog("VBlank Start");
+                        // VBlank開始
+                        Reg.PPUSTATUS |= 0x80;
+                        if ((Reg.PPUCTRL & 0x80) > 1) {
                             // NMI割り込み
-                            // CPU.NMI();
+                            cpu.NMI();
                         }
                     }
 
                     if (line == 261) {
+                        DebugLog("VBlank End");
                         // VBlank終了
                         // VBlankの終了時にPPUSTATUSのVBlankフラグをクリア
-                        Mem.VRAM[0x2002] &= 0x7F;
+                        Reg.PPUSTATUS &= 0x7F;
                         line = 0;
                     }
                 }

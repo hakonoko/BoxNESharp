@@ -7,6 +7,10 @@ using DxLibDLL;
 using System.Windows.Forms;
 using Microsoft.WindowsAPICodePack.Dialogs;
 using System.Printing;
+using System.Windows;
+using R3;
+using System.Windows.Input;
+using System.Windows.Threading;
 
 namespace BoxNESharp {
     internal partial class BoxNESharp {
@@ -54,6 +58,13 @@ namespace BoxNESharp {
             //裏画面処理を設定する
             DX.SetDrawScreen(DX.DX_SCREEN_BACK);
 
+            // VideoComponentを設定
+            VideoComponent videoComponent = new VideoComponent();
+            ppu.SetVideoComponent(videoComponent);
+
+#if NESTEST
+            var path = @"C:\Users\hakonoko\Documents\nes\nestest.nes";
+#else
             // ファイル選択
             var path = FilePicker();
 
@@ -62,16 +73,12 @@ namespace BoxNESharp {
                 DX.DxLib_End();
                 return;
             }
+#endif
+            // romファイル読み込み
+            byte[] rom = ReadFile(path);
 
             DebugLog("");
             DebugLog($"FilePath: {path}");
-
-            // VideoComponentを設定
-            VideoComponent videoComponent = new VideoComponent();
-            ppu.SetVideoComponent(videoComponent);
-
-            // romファイル読み込み
-            byte[] rom = ReadFile(path);
 
             //DebugLog($"Length: {rom.Length.ToString()} (0x{rom.Length.ToString("X2")})");
             //StringBuilder sb = new StringBuilder();
@@ -90,25 +97,41 @@ namespace BoxNESharp {
             // ROMをCPUに設定
             cpu.SetRom(rom, 0);
 
+            Execute();
+        }
+
+        static async void Execute() {
             int cnt = 0;
 
             // 無限ループ
             while (DX.CheckHitKey(DX.KEY_INPUT_ESCAPE) == 0) {
-                var cycle = cpu.Fetch();
+#if false
+                while (true) {
+                    if (Keyboard.IsKeyDown(Key.W))
+                        return;
+                    await Task.Delay(100);
+                }
+#endif
+                try {
+                    var cycle = cpu.Fetch();
+                    logNum++;
 
-                // PPUにサイクルを渡す
-                ppu.Run(cycle);
+                    // PPUにサイクルを渡す
+                    ppu.Run(cycle * 3);
+                    Cycle += cycle;
 
-                Cycle += cycle;
-
-                if(Cycle > 332) {
-                    Cycle -= 332;
+                    if (Cycle > 332) {
+                        Cycle -= 332;
+                    }
+                } catch(Exception e) {
+                    DebugLog($"例外発生！！！ \r\n {e.Message}");
+                    cnt = 999999;
                 }
 
                 cnt++;
                 //if (cnt >= 1104) {
-                if (DX.CheckHitKey(DX.KEY_INPUT_ESCAPE) != 0) {
-                    //cpu.DebugExportRAM();
+                if (DX.CheckHitKey(DX.KEY_INPUT_ESCAPE) != 0/* || cnt >= 5000*/) {
+                    cpu.DebugExportRAM();
                     //ppu.DebugExportVRAM();
                     break;
                 }
@@ -141,18 +164,19 @@ namespace BoxNESharp {
         }
 
         static int logNum = -5;
+        static Logger log = Logger.GetInstance();
         /// <summary>
         /// ログを出力する
         /// </summary>
         public static void DebugLog(string text, bool exportLogFile = true) {
             //System.Diagnostics.Debug.WriteLine(text);
-            //if(logNum >= 1000) {
-                Console.WriteLine($"{logNum.ToString("D4")}: {text}");
+            //if(logNum >= 1000) {  
+            exportLogFile = false;
+                Console.WriteLine(text);
                 if (exportLogFile) {
-                    Logger.GetInstance().Debug(text);
+                    //log.Debug(text);
                 }
             //}
-            logNum++;
         }
     }
 }

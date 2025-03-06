@@ -1,11 +1,12 @@
 ﻿using DxLibDLL;
 using MS.WindowsAPICodePack.Internal;
+using R3;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net;
 using System.Text;
 using System.Threading.Tasks;
-using static Microsoft.WindowsAPICodePack.Shell.PropertySystem.SystemProperties.System;
 
 namespace BoxNESharp {
     internal partial class BoxNESharp {
@@ -21,11 +22,28 @@ namespace BoxNESharp {
             #endregion
 
             #region 内部クラス
+            private class DebugData {
+                public Register reg = new();
+                public Operand operand = default!;
+                public StringBuilder read = new();
+                public StringBuilder addressOrData = new();
+
+                public void SetReg(Register reg) {
+                    this.reg.Set(reg);
+                }
+
+                public void Clear() {
+                    operand = default!;
+                    read.Clear();
+                    addressOrData.Clear();
+                }
+            }
+
             /// <summary>
             /// メモリ
             /// </summary>
             private class Memory {
-                public byte[] RAM = new byte[0xFFFF];
+                public byte[] RAM = new byte[0x10000];
 
                 //public byte[] WRAM = new byte[0x0800];
                 //public byte[] PPU = new byte[0x0008];
@@ -331,6 +349,16 @@ namespace BoxNESharp {
 
                 // NOP
                 { 0xEA, new Operand(Instruction.NOP, AddressingMode.Implied,2) },
+                { 0x04, new Operand(Instruction.NOP, AddressingMode.ZeroPage,3) },
+                { 0x44, new Operand(Instruction.NOP, AddressingMode.ZeroPage,3) },
+                { 0x64, new Operand(Instruction.NOP, AddressingMode.ZeroPage,3) },
+                { 0x0C, new Operand(Instruction.NOP, AddressingMode.Absolute,3) },
+                { 0x14, new Operand(Instruction.NOP, AddressingMode.ZeroPageX,4) },
+                { 0x34, new Operand(Instruction.NOP, AddressingMode.ZeroPageX,4) },
+                { 0x54, new Operand(Instruction.NOP, AddressingMode.ZeroPageX,4) },
+                { 0x74, new Operand(Instruction.NOP, AddressingMode.ZeroPageX,4) },
+                { 0xD4, new Operand(Instruction.NOP, AddressingMode.ZeroPageX,4) },
+                { 0xF4, new Operand(Instruction.NOP, AddressingMode.ZeroPageX,4) },
 
                 // ORA
                 { 0x09, new Operand(Instruction.ORA, AddressingMode.Immediate,2) },
@@ -423,10 +451,10 @@ namespace BoxNESharp {
 
             public void SetRom(byte[] rom, int mapper) {
                 int headerSize = 0x0010;
-                var prgSize = (rom[4] * 0x4000) - 1;  // 16KB units
-                var chrSize = (rom[5] * 0x2000) - 1;  // 8KB units
+                var prgSize = (rom[4] * 0x4000);  // 16KB units
+                var chrSize = (rom[5] * 0x2000);  // 8KB units
 
-                var chrStartIndex = headerSize + prgSize + 1;
+                var chrStartIndex = headerSize + prgSize;
                 var chrEndIndex = chrStartIndex + chrSize;
 
                 DebugLog($"PRGROM Size: {prgSize.ToString()} (0x{prgSize.ToString("X4")})");
@@ -448,8 +476,10 @@ namespace BoxNESharp {
                 // BRKの7サイクル
                 Cycle += 7;
 
+#if NESTEST
                 //nestestのテスト用
-                //Reg.PC = 0xC000;
+                Reg.PC = 0xC000;
+#endif
             }
 
             public void DebugExportRAM() {
@@ -467,15 +497,17 @@ namespace BoxNESharp {
                         sb.Clear();
                     }
                 }
+                DebugLog(sb.ToString());
             }
 
-            Register tempReg = new();
+            DebugData debugData = new();
 
             /// <summary>
             /// メイン処理　1クロックごと
             /// </summary>
             public int Fetch() {
-                tempReg.Set(Reg);
+                debugData.Clear();
+                debugData.SetReg(Reg);
 
                 // 命令コードの取得
                 var opeCode = Read(Reg.PC);
@@ -483,77 +515,77 @@ namespace BoxNESharp {
 
                 // オペランドの取得
                 var operand = operandDic[opeCode];
-                
-                // アドレスとデータの取得
-                byte data = 0;
-                ushort address = 0;
+
+                // アドレスまたはデータの取得
+                ushort baseAddress = 0;
+                ushort addressOrData = 0;
                 switch (operand.AddressingMode) {
                     case AddressingMode.Accumulator:
                     case AddressingMode.Implied:
                         break;
 
-                    case AddressingMode.Immediate:
-                        data = Read(Reg.PC);
+                    case AddressingMode.Relative:
+                        addressOrData = Reg.PC;
                         Reg.PC++;
                         break;
 
-                    case AddressingMode.Relative:
-                        data = Read(Reg.PC);
+                    case AddressingMode.Immediate:
+                        addressOrData = Read(Reg.PC);
                         Reg.PC++;
                         break;
 
                     case AddressingMode.Absolute:
-                        address = ReadWord(Reg.PC);
-                        data = Read(address);
+                        addressOrData = ReadWord(Reg.PC);
                         Reg.PC += 2;
                         break;
 
                     case AddressingMode.AbsoluteX:
-                        address = ReadWord(Reg.PC);
-                        data = Read((ushort)(address + Reg.X));
+                        baseAddress = ReadWord(Reg.PC);
+                        addressOrData = (ushort)(baseAddress + Reg.X);
                         Reg.PC += 2;
                         break;
 
                     case AddressingMode.AbsoluteY:
-                        address = ReadWord(Reg.PC);
-                        data = Read((ushort)(address + Reg.Y));
+                        baseAddress = ReadWord(Reg.PC);
+                        addressOrData = (ushort)(baseAddress + Reg.Y);
                         Reg.PC += 2;
                         break;
 
                     case AddressingMode.ZeroPage:
-                        address = Read(Reg.PC);
-                        data = Read(address);
+                        addressOrData = Read(Reg.PC);
                         Reg.PC++;
                         break;
 
                     case AddressingMode.ZeroPageX:
-                        address = Read(Reg.PC);
-                        data = Read((ushort)(address + Reg.X));
+                        baseAddress = Read(Reg.PC);
+                        addressOrData = (ushort)((baseAddress + Reg.X) % 0x100);
                         Reg.PC++;
                         break;
 
                     case AddressingMode.ZeroPageY:
-                        address = Read(Reg.PC);
-                        data = Read((ushort)(address + Reg.Y));
+                        baseAddress = Read(Reg.PC);
+                        addressOrData = (ushort)((baseAddress + Reg.Y) % 0x100);
                         Reg.PC++;
                         break;
 
                     case AddressingMode.Indirect:
-                        address = ReadWord(Reg.PC);
-                        Reg.PC++;
+                        baseAddress = ReadWord(Reg.PC);
+                        addressOrData = (ushort)(Read(baseAddress)
+                                        |  Read((ushort)((baseAddress & 0xFF00) | ((baseAddress + 1) & 0x00FF))) << 8);
+                        Reg.PC += 2;
                         break;
 
                     case AddressingMode.IndirectX:
-                        address = Read(Reg.PC);
-                        address = ReadWord((ushort)(address + Reg.X));
-                        data = Read(address);
+                        baseAddress = Read(Reg.PC);
+                        addressOrData = (ushort)(Read((ushort)((baseAddress + Reg.X) % 0x100))
+                                        | (Read((ushort)((baseAddress + Reg.X + 1) % 0x100)) << 8));
                         Reg.PC++;
                         break;
 
                     case AddressingMode.IndirectY:
-                        address = Read(Reg.PC);
-                        address = (ushort)(ReadWord(address) + Reg.Y);
-                        data = Read(address);
+                        baseAddress = Read(Reg.PC);
+                        addressOrData = (ushort)((Read(baseAddress) 
+                                        |  (Read((ushort)((baseAddress + 1) % 0x100)) << 8)) + Reg.Y);
                         Reg.PC++;
                         break;
                 }
@@ -561,64 +593,64 @@ namespace BoxNESharp {
                 // 命令実行
                 switch (operand.Instruction) {
                     case Instruction.ADC:
-                        ADC(data);
+                        ADC(operand.AddressingMode, addressOrData);
                         break;
                     case Instruction.SBC:
-                        SBC(data);
+                        SBC(operand.AddressingMode, addressOrData);
                         break;
                     case Instruction.AND:
-                        AND(data);
+                        AND(operand.AddressingMode, addressOrData);
                         break;
                     case Instruction.ORA:
-                        ORA(data);
+                        ORA(operand.AddressingMode, addressOrData);
                         break;
                     case Instruction.EOR:
-                        EOR(data);
+                        EOR(operand.AddressingMode, addressOrData);
                         break;
                     case Instruction.ASL:
-                        ASL(operand.AddressingMode, address, data);
+                        ASL(operand.AddressingMode, addressOrData);
                         break;
                     case Instruction.LSR:
-                        LSR(operand.AddressingMode, address, data);
+                        LSR(operand.AddressingMode, addressOrData);
                         break;
                     case Instruction.ROL:
-                        ROL(operand.AddressingMode, address, data);
+                        ROL(operand.AddressingMode, addressOrData);
                         break;
                     case Instruction.ROR:
-                        ROR(operand.AddressingMode, address, data);
+                        ROR(operand.AddressingMode, addressOrData);
                         break;
                     case Instruction.BCC:
-                        BCC(data);
+                        BCC(addressOrData);
                         break;
                     case Instruction.BCS:
-                        BCS(data);
+                        BCS(addressOrData);
                         break;
                     case Instruction.BEQ:
-                        BEQ(data);
+                        BEQ(addressOrData);
                         break;
                     case Instruction.BNE:
-                        BNE(data);
+                        BNE(addressOrData);
                         break;
                     case Instruction.BVC:
-                        BVC(data);
+                        BVC(addressOrData);
                         break;
                     case Instruction.BVS:
-                        BVS(data);
+                        BVS(addressOrData);
                         break;
                     case Instruction.BPL:
-                        BPL(data);
+                        BPL(addressOrData);
                         break;
                     case Instruction.BMI:
-                        BMI(data);
+                        BMI(addressOrData);
                         break;
                     case Instruction.BIT:
-                        BIT(data);
+                        BIT(addressOrData);
                         break;
                     case Instruction.JMP:
-                        JMP(address);
+                        JMP(addressOrData);
                         break;
                     case Instruction.JSR:
-                        JSR(address);
+                        JSR(addressOrData);
                         break;
                     case Instruction.RTS:
                         RTS();
@@ -630,19 +662,19 @@ namespace BoxNESharp {
                         RTI();
                         break;
                     case Instruction.CMP:
-                        CMP(data);
+                        CMP(operand.AddressingMode, addressOrData);
                         break;
                     case Instruction.CPX:
-                        CPX(data);
+                        CPX(operand.AddressingMode, addressOrData);
                         break;
                     case Instruction.CPY:
-                        CPY(data);
+                        CPY(operand.AddressingMode, addressOrData);
                         break;
                     case Instruction.INC:
-                        INC(address, data);
+                        INC(addressOrData);
                         break;
                     case Instruction.DEC:
-                        DEC(address, data);
+                        DEC(addressOrData);
                         break;
                     case Instruction.INX:
                         INX();
@@ -678,22 +710,22 @@ namespace BoxNESharp {
                         CLV();
                         break;
                     case Instruction.LDA:
-                        LDA(data);
+                        LDA(operand.AddressingMode, addressOrData);
                         break;
                     case Instruction.LDX:
-                        LDX(data);
+                        LDX(operand.AddressingMode, addressOrData);
                         break;
                     case Instruction.LDY:
-                        LDY(data);
+                        LDY(operand.AddressingMode, addressOrData);
                         break;
                     case Instruction.STA:
-                        STA(address);
+                        STA(addressOrData);
                         break;
                     case Instruction.STX:
-                        STX(address);
+                        STX(addressOrData);
                         break;
                     case Instruction.STY:
-                        STY(address);
+                        STY(addressOrData);
                         break;
                     case Instruction.TAX:
                         TAX();
@@ -730,33 +762,37 @@ namespace BoxNESharp {
                         break;
                 }
 
+                debugData.operand = operand;
+
+                debugData.addressOrData.Append(addressOrData.ToString("X4"));
+
                 // デバッグログ
-                //CPU_DebugLog(tempReg, operand, address, data);
+                CPU_DebugLog(debugData);
 
                 return operand.Cycle;
             }
 
-            private void CPU_DebugLog(Register reg, Operand operand, ushort address, byte data) {
+            int logNum = 1;
+            private void CPU_DebugLog(DebugData debugData) {
                 StringBuilder sb = new();
-                sb.Append($"{reg.PC.ToString("X4")}");
-                sb.Append($" {operandDic.FirstOrDefault(x => x.Value.Equals(operand)).Key.ToString("X2")}");
-                sb.Append($" {operand.Instruction}");
-                sb.Append($" {address.ToString("X4")}");
-                if (data != 0) {
-                    sb.Append($" {data.ToString("X2")}");
-                    //sb.Append($"\t");
-                } else {
-                    sb.Append($"\t");
-                }
-                sb.Append($"\t");
-                sb.Append($"A:{reg.A.ToString("X2")}");
-                sb.Append($" X:{reg.X.ToString("X2")}");
-                sb.Append($" Y:{reg.Y.ToString("X2")}");
-                sb.Append($" P:{reg.P.ToString("X2")}");
-                sb.Append($" SP:{reg.SP.ToString("X2")}");
-                sb.Append($" CYC:{Cycle}");
-                sb.Append($" \t");
-                sb.Append($" {operand.AddressingMode}");
+                sb.Append($"{logNum++.ToString("D4")}:");
+
+                sb.Append($" {debugData.reg.PC.ToString("X4")}");
+                sb.Append($" {debugData.read.ToString().PadRight(9, ' ')}");
+                sb.Append($" {debugData.operand.Instruction}");
+                sb.Append($" {debugData.addressOrData.ToString().PadRight(6,' ')}");
+                sb.Append($"A:{debugData.reg.A.ToString("X2")}");
+                sb.Append($" X:{debugData.reg.X.ToString("X2")}");
+                sb.Append($" Y:{debugData.reg.Y.ToString("X2")}");
+                sb.Append($" P:{debugData.reg.P.ToString("X2")}");
+                sb.Append($" SP:{debugData.reg.SP.ToString("X2")}");
+                sb.Append($" CYC:{Cycle.ToString().PadRight(5, ' ')}");
+                sb.Append($" {debugData.operand.AddressingMode}");
+
+                //sb.Append($" \t");
+                //sb.Append($" PPU CTRL: {ppu.DebugReadPPUCTRL.ToString("X4")}");
+                //sb.Append($" MASK: {ppu.DebugReadPPUMASK.ToString("X4")}");
+                //sb.Append($" STAT: {ppu.DebugReadPPUSTATUS.ToString("X4")}");
 
                 DebugLog(sb.ToString());
             }
@@ -767,7 +803,16 @@ namespace BoxNESharp {
             /// </summary>
             /// <returns></returns>
             byte Read(ushort address) {
-                return Mem.RAM[address];
+                byte data;
+                if((0x2000 <= address && address <= 0x2007) || address == 0x4014) {
+                    data = ppu.ReadVRAMFromCPU(address);
+                } else {
+                    data = Mem.RAM[address];
+                }
+#if CPULOG
+                if(debugData.read.Length < 9) debugData.read.Append($"{data.ToString("X2")} ");
+#endif
+                return data;
             }
 
             /// <summary>
@@ -810,7 +855,8 @@ namespace BoxNESharp {
             #region Instruction
 
             #region Calculation
-            void ADC(byte data) {
+            void ADC(AddressingMode mode, ushort addressOrData) {
+                byte data = (byte)(mode == AddressingMode.Immediate ? addressOrData : Read(addressOrData));
                 var result = (ushort)(Reg.A + data + (Reg.Carry ? 1 : 0));
                 var resultByte = (byte)(result & 0xFF);
                 Reg.Carry = result > 0xFF;
@@ -820,7 +866,8 @@ namespace BoxNESharp {
                 Reg.A = resultByte;
             }
 
-            void SBC(byte data) {
+            void SBC(AddressingMode mode, ushort addressOrData) {
+                byte data = (byte)(mode == AddressingMode.Immediate ? addressOrData : Read(addressOrData));
                 var result = Reg.A - data - (!Reg.Carry ? 1 : 0);
                 var resultByte = (byte)(result & 0xFF);
                 Reg.Carry = !(result < 0);
@@ -832,21 +879,24 @@ namespace BoxNESharp {
             #endregion
 
             #region Logic
-            void AND(byte data) {
+            void AND(AddressingMode mode, ushort addressOrData) {
+                byte data = (byte)(mode == AddressingMode.Immediate ? addressOrData : Read(addressOrData));
                 var result = (byte)(Reg.A & data);
                 Reg.Zero = result == 0;
                 Reg.Negative = (result & 0x80) > 0;
                 Reg.A = result;
             }
 
-            void ORA(byte data) {
+            void ORA(AddressingMode mode, ushort addressOrData) {
+                byte data = (byte)(mode == AddressingMode.Immediate ? addressOrData : Read(addressOrData));
                 var result = (byte)(Reg.A | data);
                 Reg.Zero = result == 0;
                 Reg.Negative = (result & 0x80) > 0;
                 Reg.A = result;
             }
 
-            void EOR(byte data) {
+            void EOR(AddressingMode mode, ushort addressOrData) {
+                byte data = (byte)(mode == AddressingMode.Immediate ? addressOrData : Read(addressOrData));
                 var result = (byte)(Reg.A ^ data);
                 Reg.Zero = result == 0;
                 Reg.Negative = (result & 0x80) > 0;
@@ -855,7 +905,7 @@ namespace BoxNESharp {
             #endregion
 
             #region Shift and Lotation
-            void ASL(AddressingMode mode, ushort address, byte data) {
+            void ASL(AddressingMode mode, ushort address) {
                 if(mode == AddressingMode.Accumulator) {
                     var result = (byte)(Reg.A << 1);
                     Reg.Carry = (Reg.A & 0x80) > 0;
@@ -863,16 +913,16 @@ namespace BoxNESharp {
                     Reg.Negative = (result & 0x80) > 0;
                     Reg.A = result;
                 } else {
+                    byte data = Read(address);
                     var result = (byte)(data << 1);
                     Reg.Carry = (data & 0x80) > 0;
                     Reg.Zero = result == 0;
                     Reg.Negative = (result & 0x80) > 0;
                     Write(address, result);
                 }
-
             }
 
-            void LSR(AddressingMode mode, ushort address, byte data) {
+            void LSR(AddressingMode mode, ushort address) {
                 if (mode == AddressingMode.Accumulator) {
                     var result = (byte)(Reg.A >> 1);
                     Reg.Carry = (Reg.A & 0x01) > 0;
@@ -880,6 +930,7 @@ namespace BoxNESharp {
                     Reg.Negative = (result & 0x80) > 0;
                     Reg.A = result;
                 } else {
+                    var data = Read(address);
                     var result = (byte)(data >> 1);
                     Reg.Carry = (data & 0x01) > 0;
                     Reg.Zero = result == 0;
@@ -888,7 +939,7 @@ namespace BoxNESharp {
                 }
             }
 
-            void ROL(AddressingMode mode, ushort address, byte data) {
+            void ROL(AddressingMode mode, ushort address) {
                 if (mode == AddressingMode.Accumulator) {
                     var result = (byte)((Reg.A << 1) | (Reg.Carry ? 1 : 0));
                     Reg.Carry = (Reg.A & 0x80) > 0;
@@ -896,6 +947,7 @@ namespace BoxNESharp {
                     Reg.Negative = (result & 0x80) > 0;
                     Reg.A = result;
                 } else {
+                    var data = Read(address);
                     var result = (byte)((data << 1) | (Reg.Carry ? 1 : 0));
                     Reg.Carry = (data & 0x80) > 0;
                     Reg.Zero = result == 0;
@@ -904,7 +956,7 @@ namespace BoxNESharp {
                 }
             }
 
-            void ROR(AddressingMode mode, ushort address, byte data) {
+            void ROR(AddressingMode mode, ushort address) {
                 if (mode == AddressingMode.Accumulator) {
                     var result = (byte)((Reg.A >> 1) | ((Reg.Carry ? 1 : 0) << 7));
                     Reg.Carry = (Reg.A & 0x01) > 0;
@@ -912,7 +964,8 @@ namespace BoxNESharp {
                     Reg.Negative = (result & 0x80) > 0;
                     Reg.A = result;
                 } else {
-                    var result = (byte)((data >> 1) | (Reg.Carry ? 1 : 0));
+                    var data = Read(address);
+                    var result = (byte)((data >> 1) | (Reg.Carry ? 1 : 0) << 7);
                     Reg.Carry = (data & 0x01) > 0;
                     Reg.Zero = result == 0;
                     Reg.Negative = (result & 0x80) > 0;
@@ -922,49 +975,57 @@ namespace BoxNESharp {
             #endregion
 
             #region Branch
-            void BCC(byte data) {
+            void BCC(ushort address) {
+                var data = Read(address);
                 if (!Reg.Carry) {
                     Reg.PC = (ushort)(Reg.PC + ((data & 0x80) > 0 ? ((~data & 0x7F) + 1) * -1 : data));
                 }
             }
 
-            void BCS(byte data) {
+            void BCS(ushort address) {
+                var data = Read(address);
                 if (Reg.Carry) {
                     Reg.PC = (ushort)(Reg.PC + ((data & 0x80) > 0 ? ((~data & 0x7F) + 1) * -1 : data));
                 }
             }
 
-            void BNE(byte data) {
+            void BNE(ushort address) {
+                var data = Read(address);
                 if (!Reg.Zero) {
                     Reg.PC = (ushort)(Reg.PC + ((data & 0x80) > 0 ? ((~data & 0x7F) + 1) * -1 : data));
                 }
             }
 
-            void BEQ(byte data) {
+            void BEQ(ushort address) {
+                var data = Read(address);
                 if (Reg.Zero) {
                     Reg.PC = (ushort)(Reg.PC + ((data & 0x80) > 0 ? ((~data & 0x7F) + 1) * -1 : data));
                 }
             }
 
-            void BVC(byte data) {
+            void BVC(ushort address) {
+                var data = Read(address);
                 if (!Reg.Overflow) {
                     Reg.PC = (ushort)(Reg.PC + ((data & 0x80) > 0 ? ((~data & 0x7F) + 1) * -1 : data));
                 }
             }
 
-            void BVS(byte data) {
+            void BVS(ushort address) {
+                var data = Read(address);
                 if (Reg.Overflow) {
                     Reg.PC = (ushort)(Reg.PC + ((data & 0x80) > 0 ? ((~data & 0x7F) + 1) * -1 : data));
                 }
             }
 
-            void BPL(byte data) {
+            void BPL(ushort address) {
+                var data = Read(address);
                 if (!Reg.Negative) {
                     Reg.PC = (ushort)(Reg.PC + ((data & 0x80) > 0 ? ((~data & 0x7F) + 1) * -1 : data));
                 }
             }
 
-            void BMI(byte data) {
+            void BMI(ushort address) {
+                var data = Read(address);
                 if (Reg.Negative) {
                     Reg.PC = (ushort)(Reg.PC + ((data & 0x80) > 0 ? ((~data & 0x7F) + 1) * -1 : data));
                 }
@@ -972,7 +1033,8 @@ namespace BoxNESharp {
             #endregion
 
             #region Bit Test
-            void BIT(byte data) {
+            void BIT(ushort address) {
+                var data = Read(address);
                 var result = (byte)(Reg.A & data);
                 Reg.Overflow = (data & 0x40) > 0;
                 Reg.Zero = result == 0;
@@ -1024,6 +1086,15 @@ namespace BoxNESharp {
                 Reg.PC = (ushort)((high << 8) | low);
             }
 
+            public void NMI() {
+                Reg.Break = false;
+                Push((byte)((Reg.PC & 0xFF00) >> 8));
+                Push((byte)(Reg.PC & 0x00FF));
+                Push(Reg.P);
+                Reg.Interrupt = true;
+                Reg.PC = ReadWord(0xFFFA);
+            }
+
             //void IRQ() {
             //    if (Reg.Interrupt)
             //        return;
@@ -1038,21 +1109,24 @@ namespace BoxNESharp {
             #endregion
 
             #region Compare
-            void CMP(byte data) {
+            void CMP(AddressingMode mode, ushort addressOrData) {
+                byte data = (byte)(mode == AddressingMode.Immediate ? addressOrData : Read(addressOrData));
                 var result = (byte)(Reg.A - data);
                 Reg.Carry = Reg.A >= data;
                 Reg.Zero = Reg.A == data;
                 Reg.Negative = (result & 0x80) > 0;
             }
 
-            void CPX(byte data) {
+            void CPX(AddressingMode mode, ushort addressOrData) {
+                byte data = (byte)(mode == AddressingMode.Immediate ? addressOrData : Read(addressOrData));
                 var result = (byte)(Reg.X - data);
                 Reg.Carry = Reg.X >= data;
                 Reg.Zero = Reg.X == data;
                 Reg.Negative = (result & 0x80) > 0;
             }
 
-            void CPY(byte data) {
+            void CPY(AddressingMode mode, ushort addressOrData) {
+                byte data = (byte)(mode == AddressingMode.Immediate ? addressOrData : Read(addressOrData));
                 var result = (byte)(Reg.Y - data);
                 Reg.Carry = Reg.Y >= data;
                 Reg.Zero = Reg.Y == data;
@@ -1061,18 +1135,20 @@ namespace BoxNESharp {
             #endregion
 
             #region Increment/Decrement
-            void INC(ushort addr, byte data) {
+            void INC(ushort address) {
+                var data = Read(address);
                 var result = (byte)(data + 1);
                 Reg.Negative = (result & 0x80) > 0;
                 Reg.Zero = result == 0;
-                Write(addr, result);
+                Write(address, result);
             }
             
-            void DEC(ushort addr, byte data) {
+            void DEC(ushort address) {
+                var data = Read(address);
                 var result = (byte)(data - 1);
                 Reg.Negative = (result & 0x80) > 0;
                 Reg.Zero = result == 0;
-                Write(addr, result);
+                Write(address, result);
             }
 
             void INX() {
@@ -1135,34 +1211,37 @@ namespace BoxNESharp {
             #endregion
 
             #region Load/Store
-            void LDA(byte data) {
+            void LDA(AddressingMode mode, ushort addressOrData) {
+                byte data = (byte)(mode == AddressingMode.Immediate ? addressOrData : Read(addressOrData));
                 Reg.Negative = (data & 0x80) > 0;
                 Reg.Zero = data == 0;
                 Reg.A = data;
             }
 
-            void LDX(byte data) {
+            void LDX(AddressingMode mode, ushort addressOrData) {
+                byte data = (byte)(mode == AddressingMode.Immediate ? addressOrData : Read(addressOrData));
                 Reg.Negative = (data & 0x80) > 0;
                 Reg.Zero = data == 0;
                 Reg.X = data;
             }
 
-            void LDY(byte data) {
+            void LDY(AddressingMode mode, ushort addressOrData) {
+                byte data = (byte)(mode == AddressingMode.Immediate ? addressOrData : Read(addressOrData));
                 Reg.Negative = (data & 0x80) > 0;
                 Reg.Zero = data == 0;
                 Reg.Y = data;
             }
 
-            void STA(ushort addr) {
-                Write(addr, Reg.A);
+            void STA(ushort address) {
+                Write(address, Reg.A);
             }
 
-            void STX(ushort addr) {
-                Write(addr, Reg.X);
+            void STX(ushort address) {
+                Write(address, Reg.X);
             }
 
-            void STY(ushort addr) {
-                Write(addr, Reg.Y);
+            void STY(ushort address) {
+                Write(address, Reg.Y);
             }
             #endregion
 
