@@ -12,6 +12,7 @@ namespace BoxNESharp {
     internal partial class BoxNESharp {
         class CPU {
             PPU ppu = PPU.GetInstance();
+            Controller controller = Controller.GetInstance();
 
             #region Singlton
             private static CPU _instance = new CPU();
@@ -806,6 +807,8 @@ namespace BoxNESharp {
                 byte data;
                 if((0x2000 <= address && address <= 0x2007) || address == 0x4014) {
                     data = ppu.ReadVRAMFromCPU(address);
+                } else if(address == 0x4016 || address == 0x4017) {
+                    data = controller.ReadController(address);
                 } else {
                     data = Mem.RAM[address];
                 }
@@ -831,6 +834,8 @@ namespace BoxNESharp {
             void Write(ushort address, byte data) {
                 if ((0x2000 <= address && address <= 0x2007) || address == 0x4014) {
                     ppu.WriteVRAMFromCPU(address, data);
+                } else if(address == 0x4016 || address == 0x4017) {
+                    controller.WriteController(address, data);
                 } else {
                     Mem.RAM[address] = data;
                 }

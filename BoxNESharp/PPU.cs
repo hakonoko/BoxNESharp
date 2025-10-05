@@ -1,4 +1,4 @@
-﻿using DxLibDLL;
+using DxLibDLL;
 using System;
 using System.Collections.Generic;
 using System.Drawing;
@@ -206,19 +206,22 @@ namespace BoxNESharp {
                     case 0x2006:
                         // PPUADDR
                         if (ppu_addr_write_cnt == 0) {
-                            ppu_addr = (ushort)(data << 8);
+                            // 1回目の書き込み: 上位バイト
+                            ppu_addr = (ushort)((ppu_addr & 0x00FF) | (data << 8));
+                            ppu_addr_write_cnt = 1;
                         } else {
-                            ppu_addr |= data;
+                            // 2回目の書き込み: 下位バイト -> トグルをクリア
+                            ppu_addr = (ushort)((ppu_addr & 0xFF00) | data);
+                            ppu_addr_write_cnt = 0;
                         }
-                        ppu_addr_write_cnt++;
                         //Mem.VRAM[address] = data;
                         break;
                     case 0x2007:
                         // PPUDATA
-                        WriteVRAM(ppu_addr, data);
-                        // PPUADDRのインクリメント
-                        ppu_addr++;
-                        ppu_addr_write_cnt = 0;
+                        WriteVRAM((ushort)(ppu_addr & 0x3FFF), data);
+                        // PPUADDRのインクリメント (PPUCTRL bit2: 0->+1, 1->+32)
+                        ushort inc = (ushort)(((Reg.PPUCTRL & 0x04) != 0) ? 32 : 1);
+                        ppu_addr = (ushort)((ppu_addr + inc) & 0x3FFF);
                         break;
                     default:
                         // Mem.VRAM[address] = data;
@@ -238,22 +241,26 @@ namespace BoxNESharp {
                     byte ret = Reg.PPUSTATUS;
                     // VBlankフラグをクリア
                     Reg.PPUSTATUS &= 0x7F;
-                    // 0x2005の書込み順序をクリア
+                    // 0x2005/0x2006 の書込み順序(アドレス/スクロールラッチ)をクリア
+                    ppu_addr_write_cnt = 0;
 
                     return ret;
                 } else if (address == 0x2007) {
                     // PPUDATA
                     // パレットテーブル以外はバッファを噛まして値を返す
                     byte ret;
-                    if (ppu_addr >= 0x3F00) {
-                        ret = ReadVRAM(ppu_addr);
+                    ushort addr14 = (ushort)(ppu_addr & 0x3FFF);
+                    if (addr14 >= 0x3F00) {
+                        // パレットはバッファを介さない
+                        ret = ReadVRAM(addr14);
                     } else {
                         ret = ppu_read_buffer;
-                        ppu_read_buffer = ReadVRAM(ppu_addr);
+                        ppu_read_buffer = ReadVRAM(addr14);
                     }
                     // PPUADDRのインクリメント
                     DebugLog($"ReadVRAM 0x2007: {ret}");
-                    ppu_addr++;
+                    ushort inc = (ushort)(((Reg.PPUCTRL & 0x04) != 0) ? 32 : 1);
+                    ppu_addr = (ushort)((ppu_addr + inc) & 0x3FFF);
                     return ret;
                 }
                 return Mem.VRAM[address];
@@ -355,7 +362,7 @@ namespace BoxNESharp {
                 //    DebugLog($"pattern: {patternID.ToString("X2")}, X: {tileX.ToString("D2")}, Y: {tileY.ToString("D2")}");
                 
                 //タイル作成
-                var blockAddrOffset = (ushort)(0x0000);
+                var blockAddrOffset = (ushort)((Reg.PPUCTRL & 0x10) > 0 ? 0x1000 : 0x0000);
                 byte[] low = new byte[8];
                 byte[] high = new byte[8];
                 // パターンテーブルのアドレスは0x0000～または0x1000~
@@ -389,15 +396,15 @@ namespace BoxNESharp {
                 // TODO
                 // スタート地点は0x23C0, 0x27C0, 0x2BC0,0x2FC0から、サイズは0x0040(64)
                 // どの属性テーブルから取得するかはregisterから取得する。
-                var addr = (ushort)(0x23C0 + (y / 4) * 8 + (x / 4));
+                var baseAddr = 0x2000 + (Reg.PPUCTRL & 0x03) * 0x0400 + 0x03C0;
+                var addr = (ushort)(baseAddr + (y / 4) * 8 + (x / 4));
                 return ReadVRAM(addr);
             }
 
             private int GetPalleteID(int x, int y, byte attribute) {
-                // TODO
-                // 0x3F00から0x3F1Fまでのパレットテーブルから取得する。
-                var attrX = x % 2;
-                var attrY = y % 2;
+                // 4x4タイル（32x32ピクセル）内での相対位置を計算
+                var attrX = (x / 2) % 2;  // 0 or 1
+                var attrY = (y / 2) % 2;  // 0 or 1
                 var num = attrY * 2 + attrX;
                 var id = num switch {
                     0b00 => (byte)(attribute & 0b11),

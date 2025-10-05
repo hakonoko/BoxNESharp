@@ -36,8 +36,15 @@ namespace BoxNESharp {
         static CPU cpu = CPU.GetInstance();
         // PPU
         static PPU ppu = PPU.GetInstance();
+        // Controller
+        static Controller controller = Controller.GetInstance();
 
         public static int Cycle { get; private set; }
+
+        // FPS計算用
+        static int frameCount = 0;
+        static int fps = 0;
+        static long lastFpsUpdateTime = 0;
 
         /// <summary>
         /// メイン関数
@@ -97,6 +104,9 @@ namespace BoxNESharp {
             // ROMをCPUに設定
             cpu.SetRom(rom, 0);
 
+            // コントローラーを初期化
+            controller.Initialize();
+
             Execute();
         }
 
@@ -113,6 +123,9 @@ namespace BoxNESharp {
                 }
 #endif
                 try {
+                    // コントローラーの入力状態を更新
+                    controller.Update();
+
                     var cycle = cpu.Fetch();
                     logNum++;
 
@@ -123,16 +136,17 @@ namespace BoxNESharp {
                     if (Cycle > 332) {
                         Cycle -= 332;
                     }
+
+                    // FPS計算とタイトルバー更新
+                    UpdateFPS();
                 } catch(Exception e) {
                     DebugLog($"例外発生！！！ \r\n {e.Message}");
                     cnt = 999999;
                 }
 
                 cnt++;
-                //if (cnt >= 1104) {
-                if (DX.CheckHitKey(DX.KEY_INPUT_ESCAPE) != 0/* || cnt >= 5000*/) {
+                if (DX.CheckHitKey(DX.KEY_INPUT_ESCAPE) != 0) {
                     cpu.DebugExportRAM();
-                    //ppu.DebugExportVRAM();
                     break;
                 }
             }
@@ -166,15 +180,36 @@ namespace BoxNESharp {
         static int logNum = -5;
         static Logger log = Logger.GetInstance();
         /// <summary>
+        /// FPSを更新してタイトルバーに表示する
+        /// </summary>
+        static void UpdateFPS() {
+            frameCount++;
+
+            // 現在の時間を取得（ミリ秒単位）
+            long currentTime = DateTime.Now.Ticks / TimeSpan.TicksPerMillisecond;
+
+            // 1秒ごとにFPSを計算してタイトルを更新
+            if (currentTime - lastFpsUpdateTime >= 1000) {
+                fps = frameCount;
+                frameCount = 0;
+                lastFpsUpdateTime = currentTime;
+
+                // タイトルバーにFPSを表示
+                string titleWithFps = $"{WINDOW_TITLE} - FPS: {fps}";
+                DX.SetWindowText(titleWithFps);
+            }
+        }
+
+        /// <summary>
         /// ログを出力する
         /// </summary>
         public static void DebugLog(string text, bool exportLogFile = true) {
             //System.Diagnostics.Debug.WriteLine(text);
-            //if(logNum >= 1000) {  
+            //if(logNum >= 1000) {
             exportLogFile = false;
                 Console.WriteLine(text);
                 if (exportLogFile) {
-                    //log.Debug(text);
+                    log.Debug(text);
                 }
             //}
         }

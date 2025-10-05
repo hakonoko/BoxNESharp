@@ -18,7 +18,6 @@ namespace BoxNESharp {
                 for (int x = 0; x < pixels.GetLength(1); x++) {
                     var color = pixels[y, x];
                     DX.DrawBox(x * pixelSizeX, y * pixelSizeY, (x + 1) * pixelSizeX, (y + 1) * pixelSizeY, DX.GetColor(color.R, color.G, color.B), DX.TRUE);
-                    //DX.DrawPixel(x * pixelSizeX, y * pixelSizeY, DX.GetColor(color.R, color.G, color.B));
                 }
             }
 
