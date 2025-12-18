@@ -3,4 +3,4 @@
 使用ライブラリ
 
 
-DxLib (https://dxlib.xsrv.jpD)
+DxLib (https://dxlib.xsrv.jp)
